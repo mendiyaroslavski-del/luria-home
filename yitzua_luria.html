@@ -38,47 +38,32 @@ body {
 
 /* HEADER */
 header {
-  background: rgba(15,33,24,0.97);
+  background: rgba(15,33,24,0.95);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(201,168,76,0.3);
-  padding: 0;
+  padding: 0 20px;
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 20px;
   box-shadow: 0 2px 20px rgba(0,0,0,0.5);
   position: sticky; top: 0; z-index: 100;
 }
-.header-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 16px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-}
 .logo {
   font-family: 'Frank Ruhl Libre', serif;
-  font-size: 17px; font-weight: 700; padding: 11px 0;
-  white-space: nowrap; display: flex; align-items: center; gap: 8px;
+  font-size: 20px; font-weight: 700; padding: 14px 0;
+  white-space: nowrap; display: flex; align-items: center; gap: 10px;
   color: var(--gold);
   text-shadow: 0 0 20px rgba(201,168,76,0.4);
 }
-.logo span { font-size: 22px; }
-.logo small { font-size: 11px; color: var(--muted); font-weight: 400; font-family: 'Heebo', sans-serif; }
-nav {
-  display: flex;
-  gap: 0;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  padding: 0 4px;
-}
-nav::-webkit-scrollbar { display: none; }
+.logo span { font-size: 26px; }
+.logo small { font-size: 12px; color: var(--muted); font-weight: 400; font-family: 'Heebo', sans-serif; }
+nav { display: flex; gap: 2px; flex: 1; overflow-x: auto; }
 .nav-btn {
   background: none; border: none; color: rgba(232,244,232,0.6);
-  padding: 13px 16px; cursor: pointer; font-size: 14px; white-space: nowrap;
+  padding: 16px 14px; cursor: pointer; font-size: 13px; white-space: nowrap;
   border-bottom: 3px solid transparent; transition: all 0.25s;
   font-family: 'Heebo', sans-serif; font-weight: 500;
-  flex-shrink: 0;
 }
 .nav-btn:hover { color: var(--text); background: rgba(82,183,136,0.08); }
 .nav-btn.active { color: var(--gold); border-bottom-color: var(--gold); }
@@ -312,10 +297,7 @@ label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 5px
 <body>
 
 <header>
-  <div class="header-top">
-    <div class="logo"><span>🍋</span> אתרוגי לוריא <small>/ יצוא לחו"ל</small></div>
-    <a href="../luria-home/" style="color:var(--muted);font-size:12px;text-decoration:none;font-family:'Heebo',sans-serif;white-space:nowrap;">← חזרה לפורטל</a>
-  </div>
+  <div class="logo"><span>🍋</span> אתרוגי לוריא <small>/ יצוא לחו"ל</small></div>
   <nav>
     <button class="nav-btn active" onclick="showTab('dashboard')">🏠 לוח בקרה</button>
     <button class="nav-btn" onclick="showTab('customers')">👥 לקוחות</button>
@@ -323,7 +305,9 @@ label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 5px
     <button class="nav-btn" onclick="showTab('purchases')">🛒 רכישות</button>
     <button class="nav-btn" onclick="showTab('etrog-types')">🍋 סוגי אתרוג</button>
     <button class="nav-btn" onclick="showTab('export')">📤 יצוא</button>
+    <button class="nav-btn" onclick="showTab('quotes')">📄 הצעות מחיר</button>
   </nav>
+  <a href="index.html" class="back-link">← חזרה לפורטל</a>
 </header>
 
 <div class="content">
@@ -404,6 +388,17 @@ label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 5px
       </div>
     </div>
     <div id="customer-preview" style="display:none"></div>
+  </div>
+
+  <!-- QUOTES TAB -->
+  <div id="tab-quotes" class="section">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
+        <div class="card-title" style="margin:0">📄 הצעות מחיר</div>
+        <button class="btn btn-gold" onclick="openNewQuote()">+ הצעה חדשה</button>
+      </div>
+      <div id="quotes-list"><div class="empty-state"><div class="icon">📄</div>אין הצעות מחיר עדיין.</div></div>
+    </div>
   </div>
 </div>
 
@@ -517,6 +512,7 @@ let state = {
   customers: [],
   orders: [],
   purchases: [],
+  quotes: [],
   etrogTypes: ['מהודר א','מהודר ב','א','ב','ג'],
   _loaded: false
 };
@@ -541,6 +537,7 @@ async function init() {
   state.customers = await load('customers', []);
   state.orders = await load('orders', []);
   state.purchases = await load('purchases', []);
+  state.quotes = await load('quotes', []);
   state.etrogTypes = await load('etrogTypes', ['מהודר א','מהודר ב','א','ב','ג']);
   state._loaded = true;
   renderAll();
@@ -555,6 +552,7 @@ function renderAll() {
   renderOrdersList();
   renderPurchasesList();
   renderEtrogTypes();
+  renderQuotesList();
   updatePDFSelect();
 }
 
@@ -1348,6 +1346,346 @@ document.querySelectorAll('.overlay').forEach(ov => {
 // START
 // ============================================================
 init();
+</script>
+
+<!-- QUOTE MODAL -->
+<div class="overlay" id="quote-modal">
+  <div class="modal" style="max-width:700px">
+    <div class="modal-header">
+      <div class="modal-title" id="quote-modal-title">📄 הצעת מחיר חדשה</div>
+      <button class="close-btn" onclick="closeModal('quote-modal')">✕</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+      <div>
+        <label>מספר הצעה</label>
+        <input type="text" id="q-num" placeholder="אוטומטי" style="background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;width:100%;font-family:inherit">
+      </div>
+      <div>
+        <label>תאריך</label>
+        <input type="date" id="q-date" style="background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;width:100%;font-family:inherit">
+      </div>
+      <div>
+        <label>תוקף עד</label>
+        <input type="date" id="q-valid" style="background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;width:100%;font-family:inherit">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div>
+        <label>שם לקוח / גוף</label>
+        <input type="text" id="q-customer" placeholder="שם הלקוח..." style="background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;width:100%;font-family:inherit">
+      </div>
+      <div>
+        <label>כתובת / פרטים נוספים</label>
+        <input type="text" id="q-address" placeholder="כתובת, מדינה, טלפון..." style="background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;width:100%;font-family:inherit">
+      </div>
+    </div>
+    <div style="margin-bottom:8px">
+      <label>הערות / כותרת</label>
+      <input type="text" id="q-notes" placeholder="לדוגמה: הצעת מחיר לאספקת ד׳ מינים לסוכות תשפ״ו" style="background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;width:100%;font-family:inherit">
+    </div>
+
+    <div style="margin:18px 0 8px;font-weight:700;color:var(--gold);font-size:13px">פירוט הצעה</div>
+    <div style="display:grid;grid-template-columns:1fr 80px 90px 80px 32px;gap:6px;font-size:12px;color:var(--muted);padding:0 0 6px;border-bottom:1px solid var(--border);margin-bottom:8px">
+      <div>תיאור</div><div>כמות</div><div>מחיר ליחידה</div><div>סה״כ</div><div></div>
+    </div>
+    <div id="q-rows"></div>
+    <button class="btn btn-outline" onclick="addQuoteRow()" style="margin-top:8px;font-size:13px">+ הוסף שורה</button>
+
+    <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;font-size:14px">
+        <div style="display:flex;gap:24px;align-items:center">
+          <span style="color:var(--muted)">סה״כ לפני מע״מ:</span>
+          <span id="q-subtotal" style="color:var(--text);font-weight:600;min-width:90px;text-align:left">₪0.00</span>
+        </div>
+        <div style="display:flex;gap:24px;align-items:center">
+          <span style="color:var(--muted)">מע״מ (18%):</span>
+          <span id="q-vat" style="color:var(--muted);min-width:90px;text-align:left">₪0.00</span>
+        </div>
+        <div style="display:flex;gap:24px;align-items:center;margin-top:4px;border-top:1px solid var(--border);padding-top:8px">
+          <span style="color:var(--gold);font-weight:700">סה״כ כולל מע״מ:</span>
+          <span id="q-total" style="color:var(--gold);font-weight:700;font-size:16px;min-width:90px;text-align:left">₪0.00</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;flex-wrap:wrap">
+      <button class="btn btn-outline" onclick="closeModal('quote-modal')">ביטול</button>
+      <button class="btn btn-primary" onclick="saveQuote()">💾 שמור הצעה</button>
+      <button class="btn btn-gold" onclick="printQuote()">🖨️ הדפס / PDF</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// QUOTES MODULE
+// ============================================================
+let quoteRowCount = 0;
+let currentQuoteId = null;
+
+function openNewQuote() {
+  currentQuoteId = null;
+  quoteRowCount = 0;
+  document.getElementById('q-rows').innerHTML = '';
+  document.getElementById('q-num').value = 'HZ-' + String(Date.now()).slice(-5);
+  document.getElementById('q-date').value = today();
+  const valid = new Date(); valid.setDate(valid.getDate()+30);
+  document.getElementById('q-valid').value = valid.toISOString().slice(0,10);
+  document.getElementById('q-customer').value = '';
+  document.getElementById('q-address').value = '';
+  document.getElementById('q-notes').value = '';
+  document.getElementById('quote-modal-title').textContent = '📄 הצעת מחיר חדשה';
+  updateQuoteTotals();
+  addQuoteRow();
+  openModal('quote-modal');
+}
+
+function addQuoteRow(desc='', qty=1, price='') {
+  quoteRowCount++;
+  const n = quoteRowCount;
+  const div = document.createElement('div');
+  div.id = 'qrow-' + n;
+  div.style.cssText = 'display:grid;grid-template-columns:1fr 80px 90px 80px 32px;gap:6px;margin-bottom:6px;align-items:center';
+  div.innerHTML = `
+    <input type="text" placeholder="תיאור פריט..." value="${desc}" oninput="updateQuoteTotals()"
+      style="background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--text);padding:7px 8px;border-radius:6px;font-family:inherit;font-size:13px" id="qdesc-${n}">
+    <input type="number" min="0" step="0.01" value="${qty}" oninput="updateQuoteTotals()"
+      style="background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--text);padding:7px 8px;border-radius:6px;text-align:center;font-family:inherit;font-size:13px" id="qqty-${n}">
+    <input type="number" min="0" step="0.01" value="${price}" placeholder="₪" oninput="updateQuoteTotals()"
+      style="background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--text);padding:7px 8px;border-radius:6px;text-align:center;font-family:inherit;font-size:13px" id="qprice-${n}">
+    <span id="qrow-total-${n}" style="color:var(--text);font-size:13px;text-align:center;padding:7px 4px">₪0</span>
+    <button onclick="removeQuoteRow(${n})" style="background:rgba(255,80,80,0.15);border:1px solid rgba(255,80,80,0.3);color:#ff6b6b;border-radius:6px;cursor:pointer;padding:6px 8px;font-size:12px">✕</button>`;
+  document.getElementById('q-rows').appendChild(div);
+  updateQuoteTotals();
+}
+
+function removeQuoteRow(n) {
+  const el = document.getElementById('qrow-' + n);
+  if (el) el.remove();
+  updateQuoteTotals();
+}
+
+function updateQuoteTotals() {
+  let subtotal = 0;
+  for (let i = 1; i <= quoteRowCount; i++) {
+    const qEl = document.getElementById('qqty-' + i);
+    const pEl = document.getElementById('qprice-' + i);
+    if (!qEl) continue;
+    const q = parseFloat(qEl.value) || 0;
+    const p = parseFloat(pEl.value) || 0;
+    const row = q * p;
+    subtotal += row;
+    const rt = document.getElementById('qrow-total-' + i);
+    if (rt) rt.textContent = '₪' + fmt(row);
+  }
+  const vat = subtotal * 0.18;
+  const total = subtotal + vat;
+  document.getElementById('q-subtotal').textContent = '₪' + fmt(subtotal);
+  document.getElementById('q-vat').textContent = '₪' + fmt(vat);
+  document.getElementById('q-total').textContent = '₪' + fmt(total);
+}
+
+function getQuoteRows() {
+  const rows = [];
+  for (let i = 1; i <= quoteRowCount; i++) {
+    const dEl = document.getElementById('qdesc-' + i);
+    if (!dEl) continue;
+    const desc = dEl.value.trim();
+    const qty = parseFloat(document.getElementById('qqty-' + i).value) || 0;
+    const price = parseFloat(document.getElementById('qprice-' + i).value) || 0;
+    if (desc || qty || price) rows.push({ desc, qty, price, total: qty * price });
+  }
+  return rows;
+}
+
+async function saveQuote() {
+  const customer = document.getElementById('q-customer').value.trim();
+  if (!customer) { showAlert('נא להזין שם לקוח', 'error'); return; }
+  const rows = getQuoteRows();
+  const subtotal = rows.reduce((s, r) => s + r.total, 0);
+  const vat = subtotal * 0.18;
+  const total = subtotal + vat;
+  const quote = {
+    id: currentQuoteId || uid(),
+    num: document.getElementById('q-num').value.trim(),
+    date: document.getElementById('q-date').value,
+    valid: document.getElementById('q-valid').value,
+    customer,
+    address: document.getElementById('q-address').value.trim(),
+    notes: document.getElementById('q-notes').value.trim(),
+    rows,
+    subtotal,
+    vat,
+    total
+  };
+  if (!state.quotes) state.quotes = [];
+  if (currentQuoteId) {
+    const idx = state.quotes.findIndex(q => q.id === currentQuoteId);
+    if (idx >= 0) state.quotes[idx] = quote; else state.quotes.push(quote);
+  } else {
+    state.quotes.push(quote);
+  }
+  await save('quotes', state.quotes);
+  renderQuotesList();
+  closeModal('quote-modal');
+  showAlert('הצעת המחיר נשמרה');
+}
+
+function renderQuotesList() {
+  const el = document.getElementById('quotes-list');
+  if (!el) return;
+  if (!state.quotes || state.quotes.length === 0) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">📄</div>אין הצעות מחיר עדיין.</div>';
+    return;
+  }
+  const sorted = [...state.quotes].sort((a,b) => b.date.localeCompare(a.date));
+  let html = '<table><thead><tr><th>מספר</th><th>תאריך</th><th>לקוח</th><th>סה״כ לפני מע״מ</th><th>סה״כ כולל מע״מ</th><th>פעולות</th></tr></thead><tbody>';
+  sorted.forEach(q => {
+    html += `<tr>
+      <td><strong>${q.num||'-'}</strong></td>
+      <td>${q.date}</td>
+      <td>${q.customer}</td>
+      <td>₪${fmt(q.subtotal)}</td>
+      <td style="color:var(--gold);font-weight:600">₪${fmt(q.total)}</td>
+      <td>
+        <button class="btn btn-outline btn-xs" onclick="editQuote('${q.id}')">✏️ ערוך</button>
+        <button class="btn btn-gold btn-xs" onclick="printQuoteById('${q.id}')">🖨️ PDF</button>
+        <button class="btn btn-danger btn-xs" onclick="deleteQuote('${q.id}')">🗑️</button>
+      </td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function editQuote(id) {
+  const q = state.quotes.find(x => x.id === id);
+  if (!q) return;
+  currentQuoteId = id;
+  quoteRowCount = 0;
+  document.getElementById('q-rows').innerHTML = '';
+  document.getElementById('q-num').value = q.num || '';
+  document.getElementById('q-date').value = q.date || today();
+  document.getElementById('q-valid').value = q.valid || '';
+  document.getElementById('q-customer').value = q.customer || '';
+  document.getElementById('q-address').value = q.address || '';
+  document.getElementById('q-notes').value = q.notes || '';
+  document.getElementById('quote-modal-title').textContent = '✏️ עריכת הצעת מחיר';
+  (q.rows || []).forEach(r => addQuoteRow(r.desc, r.qty, r.price));
+  if (!q.rows || q.rows.length === 0) addQuoteRow();
+  updateQuoteTotals();
+  openModal('quote-modal');
+}
+
+async function deleteQuote(id) {
+  if (!confirm('למחוק הצעת מחיר זו?')) return;
+  state.quotes = state.quotes.filter(q => q.id !== id);
+  await save('quotes', state.quotes);
+  renderQuotesList();
+  showAlert('ההצעה נמחקה');
+}
+
+function getQuotePrintHTML(q) {
+  const rows = q.rows || [];
+  let rowsHtml = rows.map((r, i) => `
+    <tr>
+      <td style="padding:10px 12px;border-bottom:1px solid #e8e8e8">${i+1}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e8e8e8">${r.desc||''}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e8e8e8;text-align:center">${r.qty||0}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e8e8e8;text-align:left">₪${fmt(r.price||0)}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e8e8e8;text-align:left;font-weight:600">₪${fmt(r.total||0)}</td>
+    </tr>`).join('');
+
+  return `
+  <div dir="rtl" style="font-family:'Heebo',Arial,sans-serif;max-width:750px;margin:0 auto;color:#1a2a1f;padding:40px 30px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:30px;padding-bottom:20px;border-bottom:3px solid #2d6a4f">
+      <div>
+        <div style="font-size:26px;font-weight:900;color:#1a3d2b">🍋 אתרוגי לוריא</div>
+        <div style="color:#666;font-size:13px;margin-top:4px">יצוא לחו"ל</div>
+      </div>
+      <div style="text-align:left">
+        <div style="font-size:22px;font-weight:800;color:#2d6a4f">הצעת מחיר</div>
+        <div style="color:#555;font-size:13px">מספר: <strong>${q.num||'-'}</strong></div>
+        <div style="color:#555;font-size:13px">תאריך: ${q.date||''}</div>
+        ${q.valid ? `<div style="color:#555;font-size:13px">תוקף עד: ${q.valid}</div>` : ''}
+      </div>
+    </div>
+
+    <div style="background:#f5faf7;border-radius:8px;padding:16px 20px;margin-bottom:24px">
+      <div style="font-size:13px;color:#666;margin-bottom:4px">הצעה עבור:</div>
+      <div style="font-size:18px;font-weight:700;color:#1a3d2b">${q.customer||''}</div>
+      ${q.address ? `<div style="color:#555;font-size:13px;margin-top:2px">${q.address}</div>` : ''}
+    </div>
+
+    ${q.notes ? `<div style="margin-bottom:20px;color:#444;font-size:14px;font-style:italic">${q.notes}</div>` : ''}
+
+    <table style="width:100%;border-collapse:collapse;margin-bottom:24px">
+      <thead>
+        <tr style="background:#2d6a4f;color:#fff">
+          <th style="padding:10px 12px;text-align:right;font-weight:600">#</th>
+          <th style="padding:10px 12px;text-align:right;font-weight:600">תיאור</th>
+          <th style="padding:10px 12px;text-align:center;font-weight:600">כמות</th>
+          <th style="padding:10px 12px;text-align:left;font-weight:600">מחיר ליחידה</th>
+          <th style="padding:10px 12px;text-align:left;font-weight:600">סה״כ</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+
+    <div style="display:flex;justify-content:flex-end">
+      <div style="min-width:280px">
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e0e0e0;font-size:14px">
+          <span style="color:#555">סה״כ לפני מע״מ:</span>
+          <span style="font-weight:600">₪${fmt(q.subtotal||0)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e0e0e0;font-size:14px">
+          <span style="color:#555">מע״מ 18%:</span>
+          <span>₪${fmt(q.vat||0)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:12px 0;font-size:18px;font-weight:800;color:#2d6a4f">
+          <span>סה״כ לתשלום:</span>
+          <span>₪${fmt(q.total||0)}</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:40px;padding-top:20px;border-top:2px solid #e0e0e0;color:#888;font-size:12px;text-align:center">
+      הצעת מחיר זו תקפה עד ${q.valid||'—'} | אתרוגי לוריא
+    </div>
+  </div>`;
+}
+
+function printQuote() {
+  const rows = getQuoteRows();
+  const subtotal = rows.reduce((s, r) => s + r.total, 0);
+  const vat = subtotal * 0.18;
+  const q = {
+    num: document.getElementById('q-num').value,
+    date: document.getElementById('q-date').value,
+    valid: document.getElementById('q-valid').value,
+    customer: document.getElementById('q-customer').value,
+    address: document.getElementById('q-address').value,
+    notes: document.getElementById('q-notes').value,
+    rows, subtotal, vat, total: subtotal + vat
+  };
+  openQuotePrintWindow(q);
+}
+
+function printQuoteById(id) {
+  const q = state.quotes.find(x => x.id === id);
+  if (q) openQuotePrintWindow(q);
+}
+
+function openQuotePrintWindow(q) {
+  const content = getQuotePrintHTML(q);
+  const win = window.open('', '_blank');
+  win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8">
+    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+    <title>הצעת מחיר - ${q.customer||''}</title>
+    <style>@media print{body{margin:0}}</style>
+    </head><body>${content}<script>window.onload=function(){window.print()}<\/script></body></html>`);
+  win.document.close();
+}
 </script>
 </body>
 </html>
