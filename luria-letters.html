@@ -1266,11 +1266,9 @@ async function emailLetter() {
 // (old emailLetter removed)
 
 async function sendWhatsApp() {
-  // Get recipient phone number
   const recipientContact = document.getElementById('recipientContact').value.trim();
   const recipientName = document.getElementById('recipientName').value.trim();
-  
-  // Normalize Israeli phone number → international format
+
   function normalizePhone(raw) {
     let p = raw.replace(/[\s\-().+]/g, '');
     if (p.startsWith('972')) return p;
@@ -1280,8 +1278,7 @@ async function sendWhatsApp() {
   }
 
   const greeting = recipientName
-    ? `שלום ${recipientName},
-מצורף מכתב מאתרוגי לוריא בע"מ.`
+    ? `שלום ${recipientName},\nמצורף מכתב מאתרוגי לוריא בע"מ.`
     : 'מצורף מכתב מאתרוגי לוריא בע"מ.';
 
   showLoading(true);
@@ -1291,59 +1288,54 @@ async function sendWhatsApp() {
     const blob = pdf.output('blob');
     const file = new File([blob], 'מכתב_לוריא.pdf', { type: 'application/pdf' });
 
-    // Method 1: Web Share API with file — user picks WhatsApp Business from share sheet
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({
-        files: [file],
-        title: 'מכתב מאתרוגי לוריא בע"מ',
-        text: greeting
-      });
-      return;
+    // Try Web Share API with file directly (skip canShare — it lies on some Android devices)
+    if (navigator.share) {
+      try {
+        await navigator.share({ files: [file], title: 'מכתב מאתרוגי לוריא בע"מ', text: greeting });
+        return; // success — file went through share sheet
+      } catch(shareErr) {
+        if (shareErr.name === 'AbortError') return; // user cancelled — do nothing
+        // Share with file failed — fall through to download+open below
+        console.warn('share with file failed, falling back:', shareErr.message);
+      }
     }
 
-    // Method 2: WhatsApp Business deep link (Android intent)
-    // Saves PDF first, then opens WA Business with pre-filled message
-    const url = URL.createObjectURL(blob);
+    // Fallback: save PDF to device, then open WhatsApp Business with message
+    // Step 1 — save file
+    const objUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
+    a.href = objUrl;
     a.download = 'מכתב_לוריא.pdf';
     document.body.appendChild(a);
     a.click();
-    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 2000);
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(objUrl), 3000);
 
-    // After short delay open WhatsApp Business
-    setTimeout(() => {
-      const phone = recipientContact ? normalizePhone(recipientContact) : '';
-      const msg = encodeURIComponent(greeting + '\n\nהקובץ נשמר לטלפון — צרף אותו לשיחה.');
-      
-      // Try WhatsApp Business app first (package: com.whatsapp.w4b)
-      const intentUrl = phone
-        ? `intent://send/${phone}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end`
-        : `intent://send#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end`;
-      
-      // Fallback to wa.me link (works in browser if app not installed)
-      const waUrl = phone
-        ? `https://wa.me/${phone}?text=${msg}`
-        : `https://wa.me/?text=${msg}`;
+    // Step 2 — show instruction then open WhatsApp Business
+    const phone = recipientContact ? normalizePhone(recipientContact) : '';
+    const msgText = greeting + '\n\n(הקובץ נשמר בטלפון — לחץ על 📎 לצירוף)';
+    const encodedMsg = encodeURIComponent(msgText);
 
-      // Try intent first (Android); if fails browser will use waUrl
-      const tryIntent = document.createElement('a');
-      tryIntent.href = intentUrl;
-      document.body.appendChild(tryIntent);
-      tryIntent.click();
-      document.body.removeChild(tryIntent);
-      
-      // Fallback after 800ms if intent didn't open app
-      setTimeout(() => { window.open(waUrl, '_blank'); }, 800);
-    }, 1500);
+    await new Promise(r => setTimeout(r, 1200)); // wait for download to start
+
+    // Try WhatsApp Business app directly via Android intent
+    const intentUrl = phone
+      ? `intent://send/${phone}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;S.android.intent.extra.TEXT=${encodedMsg};end`
+      : `intent://conversation#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end`;
+
+    const wa_me = phone
+      ? `https://wa.me/${phone}?text=${encodedMsg}`
+      : `https://wa.me/?text=${encodedMsg}`;
+
+    // Try intent (opens WA Business directly)
+    window.location.href = intentUrl;
+    // Fallback to wa.me after 1.5s if intent not handled
+    setTimeout(() => { window.open(wa_me, '_blank'); }, 1500);
 
   } catch(e) {
     if (e.name !== 'AbortError') {
       console.error('WhatsApp error:', e);
-      // Last resort: just open WhatsApp Business with message
-      const phone = recipientContact ? normalizePhone(recipientContact) : '';
-      const msg = encodeURIComponent(greeting);
-      window.open(phone ? `https://wa.me/${phone}?text=${msg}` : 'https://wa.me/', '_blank');
+      alert('שגיאה. נסה להוריד את ה-PDF ולשלוח ידנית.');
     }
   } finally {
     showLoading(false);
