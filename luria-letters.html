@@ -515,10 +515,20 @@ body::before {
 
 .signature-line {
   border-bottom: 1px solid var(--text-muted);
-  width: 180px;
-  height: 40px;
+  width: 220px;
+  height: 65px;
   margin-bottom: 8px;
   position: relative;
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 4px;
+}
+
+#sigDisplay {
+  max-height: 60px;
+  max-width: 210px;
+  display: none;
+  object-fit: contain;
 }
 
 .signature-line::after {
@@ -564,6 +574,12 @@ body::before {
   background: rgba(201,168,76,0.9);
   transform: translateY(-1px);
   box-shadow: 0 6px 16px rgba(201,168,76,0.4);
+}
+
+.signature-btn.stamp-active {
+  background: #2d6a4f;
+  color: white;
+  border-color: #2d6a4f;
 }
 
 .signature-btn.secondary {
@@ -637,28 +653,17 @@ body::before {
 
 /* Print styles */
 @media print {
-  body {
-    background: white;
-  }
+  body { background: white; }
+  .sidebar { display: none; }
+  .container { padding: 0; max-width: none; }
+  .letter-preview { box-shadow: none; border-radius: 0; }
+  .letter-paper { padding: 40px; min-height: auto; }
   
-  .sidebar {
-    display: none;
-  }
-  
-  .container {
-    padding: 0;
-    max-width: none;
-  }
-  
-  .letter-preview {
-    box-shadow: none;
-    border-radius: 0;
-  }
-  
-  .letter-paper {
-    padding: 40px;
-    min-height: auto;
-  }
+  /* HIDE all signature UI - only show drawn signature image */
+  .signature-options { display: none !important; }
+  .signature-pad-container { display: none !important; }
+  #signatureContainer { display: none !important; }
+  #sigToast { display: none !important; }
 }
 
 /* Loading animation */
@@ -812,24 +817,41 @@ body::before {
         <p>בחר תבנית מכתב מהתפריט הצדדי כדי להתחיל לכתוב.</p>
       </div>
 
-      <div id="sigToast" style="display:none;position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#2d6a4f;color:white;padding:12px 24px;border-radius:30px;font-size:15px;font-weight:700;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.3);opacity:1;transition:opacity 0.4s;">✅ חתימה נשמרה!</div>
+      <div id="sigToast" style="display:none;position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#2d6a4f;color:white;padding:12px 24px;border-radius:30px;font-size:15px;font-weight:700;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.3);transition:opacity 0.4s;">✅ חתימה נשמרה!</div>
 
       <div class="signature-area">
-        <div class="signature-options">
+        <!-- Buttons - hidden after signing & in print -->
+        <div class="signature-options" id="signatureOptions">
           <button type="button" id="enableSignature" class="signature-btn">
             ✍️ חתימה דיגיטלית
           </button>
           <button type="button" id="clearSignature" class="signature-btn secondary" style="display: none;">
             🗑️ נקה חתימה
           </button>
+          <button type="button" id="toggleStamp" class="signature-btn secondary" onclick="toggleStamp()">
+            📮 הוסף חותמת
+          </button>
         </div>
         
+        <!-- Hidden stamp data -->
+        <img id="stampData" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNjAiIGhlaWdodD0iMTYwIiB2aWV3Qm94PSIwIDAgMjYwIDE2MCI+CiAgPGRlZnM+CiAgICA8ZmlsdGVyIGlkPSJyb3VnaGVuIj4KICAgICAgPGZlVHVyYnVsZW5jZSB0eXBlPSJmcmFjdGFsTm9pc2UiIGJhc2VGcmVxdWVuY3k9IjAuMDQiIG51bU9jdGF2ZXM9IjQiIHJlc3VsdD0ibm9pc2UiLz4KICAgICAgPGZlRGlzcGxhY2VtZW50TWFwIGluPSJTb3VyY2VHcmFwaGljIiBpbjI9Im5vaXNlIiBzY2FsZT0iMS4yIiB4Q2hhbm5lbFNlbGVjdG9yPSJSIiB5Q2hhbm5lbFNlbGVjdG9yPSJHIi8+CiAgICA8L2ZpbHRlcj4KICA8L2RlZnM+CiAgPGcgZmlsdGVyPSJ1cmwoI3JvdWdoZW4pIiBvcGFjaXR5PSIwLjkzIj4KICAgIDxlbGxpcHNlIGN4PSIxMzAiIGN5PSI4MCIgcng9IjEyMiIgcnk9IjcyIiBmaWxsPSJub25lIiBzdHJva2U9IiMxYTNhOGEiIHN0cm9rZS13aWR0aD0iNC41Ii8+CiAgICA8ZWxsaXBzZSBjeD0iMTMwIiBjeT0iODAiIHJ4PSIxMTAiIHJ5PSI2MSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMWEzYThhIiBzdHJva2Utd2lkdGg9IjIiLz4KICAgIDx0ZXh0IHg9IjEzMCIgeT0iNjUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgSGVsdmV0aWNhLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI1IiBmb250LXdlaWdodD0iYm9sZCIKICAgICAgICAgIGZpbGw9IiMxYTNhOGEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRpcmVjdGlvbj0icnRsIiB1bmljb2RlLWJpZGk9ImJpZGktb3ZlcnJpZGUiPteQ16rXqNeV15LXmSDXnNeV16jXmdeQINeR16Ii1548L3RleHQ+CiAgICA8bGluZSB4MT0iNDUiIHkxPSI4MiIgeDI9IjIxNSIgeTI9IjgyIiBzdHJva2U9IiMxYTNhOGEiIHN0cm9rZS13aWR0aD0iMS41Ii8+CiAgICA8dGV4dCB4PSIxMzAiIHk9IjEwNSIgZm9udC1mYW1pbHk9IkFyaWFsLCBIZWx2ZXRpY2EsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiIGZvbnQtd2VpZ2h0PSI2MDAiCiAgICAgICAgICBmaWxsPSIjMWEzYThhIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7Xly7XpCA1MTYxNTE2MTA8L3RleHQ+CiAgPC9nPgo8L3N2Zz4=" style="display:none;" alt="חותמת">
+        
+        <!-- Drawing pad - hidden after signing & in print -->
         <div class="signature-pad-container" id="signatureContainer" style="display: none;">
           <div class="signature-instructions">חתום כאן באמצעות העכבר או המגע:</div>
           <canvas id="signatureCanvas" class="signature-canvas"></canvas>
         </div>
         
-        <div class="signature-line"></div>
+        <!-- Stamp display area (above signature line) -->
+        <div id="stampArea" style="display:none; margin-bottom:5px; text-align:right;">
+          <img id="stampImg" src="" alt="חותמת" 
+               style="max-height:80px; max-width:160px; opacity:0.85;">
+        </div>
+        
+        <!-- Signature line - signature image sits inside here -->
+        <div class="signature-line">
+          <img id="sigDisplay" alt="חתימה">
+        </div>
         <div class="signature-name">נחום לוריא<br>מנהל, אתרוגי לוריא בע"מ</div>
       </div>
     </div>
@@ -1043,7 +1065,6 @@ async function generatePDF() {
       pdf.setFont('helvetica', 'bold');
       pdf.text('אתרוגי לוריא בע"מ', 105, 18, { align: 'center' });
     }
-    // Gold separator line
     pdf.setLineWidth(0.5);
     pdf.setDrawColor(201, 168, 76);
     pdf.line(10, 35, 200, 35);
@@ -1053,7 +1074,6 @@ async function generatePDF() {
     pdf.setFontSize(10);
     pdf.text(`תאריך: ${today}`, 190, 43, { align: 'right' });
     
-    // Add recipient info if exists
     const recipientName = document.getElementById('displayRecipientName').textContent;
     const recipientAddress = document.getElementById('displayRecipientAddress').textContent;
     const recipientContact = document.getElementById('displayRecipientContact').textContent;
@@ -1103,47 +1123,64 @@ async function generatePDF() {
       yPosition += 6;
     }
     
-    // Add digital signature at the bottom
-    if (digitalSignature && digitalSignature.hasSignature()) {
-      // Ensure we have enough space for signature
-      if (yPosition > 230) {
-        pdf.addPage();
-        yPosition = 20;
-      } else {
-        yPosition += 20; // Add some space before signature
-      }
+    // Ensure enough space
+    if (yPosition > 220) { pdf.addPage(); yPosition = 20; }
+    else { yPosition += 20; }
+    
+    // Add stamp if active (draw directly with jsPDF)
+    if (stampActive) {
+      const sx = 110, sy = yPosition; // stamp position
+      const sw = 60, sh = 36; // stamp width/height in mm
       
-      const signatureData = digitalSignature.getSignatureData();
+      // Blue color for stamp
+      pdf.setDrawColor(26, 58, 138);
+      pdf.setTextColor(26, 58, 138);
       
-      // Add signature image in the signature area
-      pdf.addImage(signatureData, 'PNG', 120, yPosition, 50, 20);
+      // Outer ellipse
+      pdf.setLineWidth(1.2);
+      pdf.ellipse(sx + sw/2, sy + sh/2, sw/2, sh/2, 'S');
       
-      // Add signature line and text BELOW the signature image
+      // Inner ellipse
+      pdf.setLineWidth(0.5);
+      pdf.ellipse(sx + sw/2, sy + sh/2, sw/2 - 3, sh/2 - 3, 'S');
+      
+      // Company name
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('אתרוגי לוריא בע"מ', sx + sw/2, sy + sh/2 - 3, { align: 'center' });
+      
+      // Divider line
       pdf.setLineWidth(0.3);
+      pdf.line(sx + 6, sy + sh/2 + 1, sx + sw - 6, sy + sh/2 + 1);
+      
+      // Registration number
+      pdf.setFontSize(6.5);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text('ח.פ 516151610', sx + sw/2, sy + sh/2 + 8, { align: 'center' });
+      
+      // Reset colors
+      pdf.setTextColor(0, 0, 0);
       pdf.setDrawColor(0, 0, 0);
-      pdf.line(110, yPosition + 25, 170, yPosition + 25);
       
-      pdf.setFontSize(9);
-      pdf.text('נחום לוריא', 170, yPosition + 30, { align: 'right' });
-      pdf.text('מנהל, אתרוגי לוריא בע"מ', 170, yPosition + 35, { align: 'right' });
-    } else {
-      // Add signature line even without digital signature
-      if (yPosition > 230) {
-        pdf.addPage();
-        yPosition = 20;
-      } else {
-        yPosition += 30;
-      }
-      
-      pdf.setLineWidth(0.3);
-      pdf.setDrawColor(0, 0, 0);
-      pdf.line(110, yPosition, 170, yPosition);
-      
-      pdf.setFontSize(9);
-      pdf.text('חתימה', 175, yPosition - 3, { align: 'right' });
-      pdf.text('נחום לוריא', 170, yPosition + 7, { align: 'right' });
-      pdf.text('מנהל, אתרוגי לוריא בע"מ', 170, yPosition + 12, { align: 'right' });
+      yPosition += sh + 5;
     }
+    
+    // Add digital signature if exists
+    if (digitalSignature && digitalSignature.hasSignature()) {
+      const signatureData = digitalSignature.getSignatureData();
+      pdf.addImage(signatureData, 'PNG', 120, yPosition, 50, 20);
+      yPosition += 22;
+    }
+    
+    // Signature line
+    pdf.setLineWidth(0.3);
+    pdf.setDrawColor(0, 0, 0);
+    pdf.line(110, yPosition, 175, yPosition);
+    
+    pdf.setFontSize(9);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text('נחום לוריא', 175, yPosition + 6, { align: 'right' });
+    pdf.text('מנהל, אתרוגי לוריא בע"מ', 175, yPosition + 11, { align: 'right' });
     
     const filename = `מכתב_לוריא_${new Date().toLocaleDateString('he-IL').replace(/\./g, '-')}.pdf`;
     pdf.save(filename);
@@ -1305,15 +1342,6 @@ class DigitalSignature {
     if (this.isDrawing) {
       this.isDrawing = false;
       this.saveSignature();
-      const toast = document.getElementById('sigToast');
-      if (toast) {
-        toast.style.display = 'block';
-        toast.style.opacity = '1';
-        setTimeout(() => {
-          toast.style.opacity = '0';
-          setTimeout(() => { toast.style.display = 'none'; }, 400);
-        }, 2000);
-      }
     }
   }
   
@@ -1328,6 +1356,22 @@ class DigitalSignature {
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
       this.signatureData = null;
     }
+    
+    // Hide saved signature display
+    const sigDisplay = document.getElementById('sigDisplay');
+    if (sigDisplay) { sigDisplay.src = ''; sigDisplay.style.display = 'none'; }
+    
+    // Restore buttons to initial state
+    const enableBtn = document.getElementById('enableSignature');
+    const clearBtn = document.getElementById('clearSignature');
+    const container = document.getElementById('signatureContainer');
+    if (enableBtn) enableBtn.style.display = 'inline-block';
+    if (clearBtn) clearBtn.style.display = 'none';
+    if (container) container.style.display = 'none';
+    
+    // Reset canvas (will be recreated on next enable)
+    this.canvas = null;
+    this.ctx = null;
   }
   
   getSignatureData() {
@@ -1336,6 +1380,27 @@ class DigitalSignature {
   
   hasSignature() {
     return this.signatureData !== null;
+  }
+}
+
+// Stamp toggle
+let stampActive = false;
+function toggleStamp() {
+  stampActive = !stampActive;
+  const stampData = document.getElementById('stampData');
+  const stampArea = document.getElementById('stampArea');
+  const stampImg = document.getElementById('stampImg');
+  const btn = document.getElementById('toggleStamp');
+  
+  if (stampActive) {
+    stampImg.src = stampData.src;
+    stampArea.style.display = 'block';
+    btn.textContent = '✅ חותמת פעילה';
+    btn.classList.add('stamp-active');
+  } else {
+    stampArea.style.display = 'none';
+    btn.textContent = '📮 הוסף חותמת';
+    btn.classList.remove('stamp-active');
   }
 }
 
