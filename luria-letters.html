@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@300;400;700;900&family=Heebo:wght@300;400;500;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
 :root {
   --deep: #0f2118;
@@ -664,6 +665,9 @@ body::before {
   .signature-pad-container { display: none !important; }
   #signatureContainer { display: none !important; }
   #sigToast { display: none !important; }
+  /* Show signature and stamp if active */
+  .has-signature { display: block !important; }
+  #stampArea.stamp-visible { display: block !important; }
 }
 
 /* Loading animation */
@@ -834,7 +838,7 @@ body::before {
         </div>
         
         <!-- Hidden stamp data -->
-        <img id="stampData" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNjAiIGhlaWdodD0iMTYwIiB2aWV3Qm94PSIwIDAgMjYwIDE2MCI+CiAgPGRlZnM+CiAgICA8ZmlsdGVyIGlkPSJyb3VnaGVuIj4KICAgICAgPGZlVHVyYnVsZW5jZSB0eXBlPSJmcmFjdGFsTm9pc2UiIGJhc2VGcmVxdWVuY3k9IjAuMDQiIG51bU9jdGF2ZXM9IjQiIHJlc3VsdD0ibm9pc2UiLz4KICAgICAgPGZlRGlzcGxhY2VtZW50TWFwIGluPSJTb3VyY2VHcmFwaGljIiBpbjI9Im5vaXNlIiBzY2FsZT0iMS4yIiB4Q2hhbm5lbFNlbGVjdG9yPSJSIiB5Q2hhbm5lbFNlbGVjdG9yPSJHIi8+CiAgICA8L2ZpbHRlcj4KICA8L2RlZnM+CiAgPGcgZmlsdGVyPSJ1cmwoI3JvdWdoZW4pIiBvcGFjaXR5PSIwLjkzIj4KICAgIDxlbGxpcHNlIGN4PSIxMzAiIGN5PSI4MCIgcng9IjEyMiIgcnk9IjcyIiBmaWxsPSJub25lIiBzdHJva2U9IiMxYTNhOGEiIHN0cm9rZS13aWR0aD0iNC41Ii8+CiAgICA8ZWxsaXBzZSBjeD0iMTMwIiBjeT0iODAiIHJ4PSIxMTAiIHJ5PSI2MSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMWEzYThhIiBzdHJva2Utd2lkdGg9IjIiLz4KICAgIDx0ZXh0IHg9IjEzMCIgeT0iNjUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgSGVsdmV0aWNhLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI1IiBmb250LXdlaWdodD0iYm9sZCIKICAgICAgICAgIGZpbGw9IiMxYTNhOGEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRpcmVjdGlvbj0icnRsIiB1bmljb2RlLWJpZGk9ImJpZGktb3ZlcnJpZGUiPteQ16rXqNeV15LXmSDXnNeV16jXmdeQINeR16Ii1548L3RleHQ+CiAgICA8bGluZSB4MT0iNDUiIHkxPSI4MiIgeDI9IjIxNSIgeTI9IjgyIiBzdHJva2U9IiMxYTNhOGEiIHN0cm9rZS13aWR0aD0iMS41Ii8+CiAgICA8dGV4dCB4PSIxMzAiIHk9IjEwNSIgZm9udC1mYW1pbHk9IkFyaWFsLCBIZWx2ZXRpY2EsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiIGZvbnQtd2VpZ2h0PSI2MDAiCiAgICAgICAgICBmaWxsPSIjMWEzYThhIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7Xly7XpCA1MTYxNTE2MTA8L3RleHQ+CiAgPC9nPgo8L3N2Zz4=" style="display:none;" alt="חותמת">
+        <img id="stampData" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMjAiIGhlaWdodD0iNTYiIHZpZXdCb3g9IjAgMCAyMjAgNTYiPgogIDx0ZXh0IHg9IjExMCIgeT0iMjIiIGZvbnQtZmFtaWx5PSJBcmlhbCxIZWx2ZXRpY2Esc2Fucy1zZXJpZiIgZm9udC1zaXplPSIyMiIgZm9udC13ZWlnaHQ9ImJvbGQiCiAgICAgICAgZmlsbD0iIzFhM2E4YSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZGlyZWN0aW9uPSJydGwiIHVuaWNvZGUtYmlkaT0iYmlkaS1vdmVycmlkZSI+15DXqteo15XXkteZINec15XXqNeZ15Ag15HXoiLXnjwvdGV4dD4KICA8bGluZSB4MT0iOCIgeTE9IjMwIiB4Mj0iMjEyIiB5Mj0iMzAiIHN0cm9rZT0iIzFhM2E4YSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4KICA8dGV4dCB4PSIxMTAiIHk9IjUwIiBmb250LWZhbWlseT0iQXJpYWwsSGVsdmV0aWNhLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTgiIGZvbnQtd2VpZ2h0PSI2MDAiCiAgICAgICAgZmlsbD0iIzFhM2E4YSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+15cu16QgNTE2MTUxNjEwPC90ZXh0Pgo8L3N2Zz4=" style="display:none;" alt="חותמת">
         
         <!-- Drawing pad - hidden after signing & in print -->
         <div class="signature-pad-container" id="signatureContainer" style="display: none;">
@@ -1039,159 +1043,113 @@ function printLetter() {
   window.print();
 }
 
-async function generatePDF() {
-  if (!window.jsPDF) {
-    alert('מערכת PDF לא זמינה. נסה להדפיס במקום זאת.');
-    return;
-  }
+// Core function: capture letter as image, build PDF blob
+async function buildLetterPDF() {
+  const letterEl = document.getElementById('letterPaper');
   
-  showLoading(true);
+  // Temporarily hide signature UI for clean capture
+  const sigOpts = document.getElementById('signatureOptions');
+  const sigCont = document.getElementById('signatureContainer');
+  const sigOptsVis = sigOpts ? sigOpts.style.visibility : '';
+  if (sigOpts) sigOpts.style.visibility = 'hidden';
+  if (sigCont) sigCont.style.display = 'none';
   
   try {
-    // Create PDF with RTL support
-    const { jsPDF } = window.jsPDF;
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4'
+    // Render letter HTML to canvas image
+    const canvas = await html2canvas(letterEl, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#ffffff',
+      logging: false
     });
     
-    // Add actual company letterhead image
-    const lhImg = document.getElementById('letterheadImg');
-    if (lhImg && lhImg.complete) {
-      pdf.addImage(lhImg, 'JPEG', 10, 5, 190, 28);
+    const imgData = canvas.toDataURL('image/jpeg', 0.95);
+    const { jsPDF } = window.jsPDF;
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    
+    const pageW = 210, pageH = 297;
+    const imgH = canvas.height * pageW / canvas.width;
+    
+    if (imgH <= pageH) {
+      pdf.addImage(imgData, 'JPEG', 0, 0, pageW, imgH);
     } else {
-      pdf.setFontSize(16);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('אתרוגי לוריא בע"מ', 105, 18, { align: 'center' });
-    }
-    pdf.setLineWidth(0.5);
-    pdf.setDrawColor(201, 168, 76);
-    pdf.line(10, 35, 200, 35);
-    
-    // Add date
-    const today = new Date().toLocaleDateString('he-IL');
-    pdf.setFontSize(10);
-    pdf.text(`תאריך: ${today}`, 190, 43, { align: 'right' });
-    
-    const recipientName = document.getElementById('displayRecipientName').textContent;
-    const recipientAddress = document.getElementById('displayRecipientAddress').textContent;
-    const recipientContact = document.getElementById('displayRecipientContact').textContent;
-    
-    let yPosition = 52;
-    
-    if (recipientName) {
-      pdf.text(`לכבוד: ${recipientName}`, 170, yPosition, { align: 'right' });
-      yPosition += 7;
-    }
-    
-    if (recipientAddress) {
-      pdf.text(recipientAddress, 170, yPosition, { align: 'right' });
-      yPosition += 7;
-    }
-    
-    if (recipientContact) {
-      pdf.text(recipientContact, 170, yPosition, { align: 'right' });
-      yPosition += 10;
-    } else {
-      yPosition += 10;
-    }
-    
-    // Add subject
-    const subject = document.getElementById('displaySubject').textContent;
-    if (subject) {
-      pdf.setFont('helvetica', 'bold');
-      pdf.text(`נושא: ${subject}`, 170, yPosition, { align: 'right' });
-      yPosition += 15;
-    } else {
-      yPosition += 10;
-    }
-    
-    // Add letter content
-    pdf.setFont('helvetica', 'normal');
-    const content = document.getElementById('displayContent').textContent || document.getElementById('letterContent').value;
-    
-    // Split content into lines for better formatting
-    const lines = pdf.splitTextToSize(content, 150);
-    
-    for (let i = 0; i < lines.length; i++) {
-      if (yPosition > 250) { // If approaching end of page
-        pdf.addPage();
-        yPosition = 20;
+      // Split into pages
+      let srcY = 0;
+      const sliceH = Math.floor(canvas.width * pageH / pageW);
+      while (srcY < canvas.height) {
+        if (srcY > 0) pdf.addPage();
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = Math.min(sliceH, canvas.height - srcY);
+        const ctx = sliceCanvas.getContext('2d');
+        ctx.drawImage(canvas, 0, srcY, canvas.width, sliceCanvas.height, 0, 0, canvas.width, sliceCanvas.height);
+        const sliceData = sliceCanvas.toDataURL('image/jpeg', 0.95);
+        const sliceImgH = sliceCanvas.height * pageW / canvas.width;
+        pdf.addImage(sliceData, 'JPEG', 0, 0, pageW, sliceImgH);
+        srcY += sliceH;
       }
-      pdf.text(lines[i], 170, yPosition, { align: 'right' });
-      yPosition += 6;
     }
-    
-    // Ensure enough space
-    if (yPosition > 220) { pdf.addPage(); yPosition = 20; }
-    else { yPosition += 20; }
-    
-    // Add stamp if active (draw directly with jsPDF)
-    if (stampActive) {
-      const sx = 110, sy = yPosition; // stamp position
-      const sw = 60, sh = 36; // stamp width/height in mm
-      
-      // Blue color for stamp
-      pdf.setDrawColor(26, 58, 138);
-      pdf.setTextColor(26, 58, 138);
-      
-      // Outer ellipse
-      pdf.setLineWidth(1.2);
-      pdf.ellipse(sx + sw/2, sy + sh/2, sw/2, sh/2, 'S');
-      
-      // Inner ellipse
-      pdf.setLineWidth(0.5);
-      pdf.ellipse(sx + sw/2, sy + sh/2, sw/2 - 3, sh/2 - 3, 'S');
-      
-      // Company name
-      pdf.setFontSize(8);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('אתרוגי לוריא בע"מ', sx + sw/2, sy + sh/2 - 3, { align: 'center' });
-      
-      // Divider line
-      pdf.setLineWidth(0.3);
-      pdf.line(sx + 6, sy + sh/2 + 1, sx + sw - 6, sy + sh/2 + 1);
-      
-      // Registration number
-      pdf.setFontSize(6.5);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text('ח.פ 516151610', sx + sw/2, sy + sh/2 + 8, { align: 'center' });
-      
-      // Reset colors
-      pdf.setTextColor(0, 0, 0);
-      pdf.setDrawColor(0, 0, 0);
-      
-      yPosition += sh + 5;
-    }
-    
-    // Add digital signature if exists
-    if (digitalSignature && digitalSignature.hasSignature()) {
-      const signatureData = digitalSignature.getSignatureData();
-      pdf.addImage(signatureData, 'PNG', 120, yPosition, 50, 20);
-      yPosition += 22;
-    }
-    
-    // Signature line
-    pdf.setLineWidth(0.3);
-    pdf.setDrawColor(0, 0, 0);
-    pdf.line(110, yPosition, 175, yPosition);
-    
-    pdf.setFontSize(9);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text('נחום לוריא', 175, yPosition + 6, { align: 'right' });
-    pdf.text('מנהל, אתרוגי לוריא בע"מ', 175, yPosition + 11, { align: 'right' });
-    
+    return pdf;
+  } finally {
+    if (sigOpts) sigOpts.style.visibility = sigOptsVis;
+  }
+}
+
+async function generatePDF() {
+  if (!window.jsPDF || !window.html2canvas) {
+    alert('מערכת PDF לא נטענה. נסה שוב בעוד רגע.');
+    return;
+  }
+  showLoading(true);
+  try {
+    const pdf = await buildLetterPDF();
     const filename = `מכתב_לוריא_${new Date().toLocaleDateString('he-IL').replace(/\./g, '-')}.pdf`;
     pdf.save(filename);
-    
-  } catch (error) {
-    console.error('Error generating PDF:', error);
-    alert('שגיאה ביצירת PDF. נסה להדפיס במקום זאת.');
+  } catch(e) {
+    console.error('PDF error:', e);
+    window.print();
   } finally {
     showLoading(false);
   }
 }
+
+async function emailLetter() {
+  if (!window.jsPDF || !window.html2canvas) {
+    alert('מערכת PDF לא נטענה. נסה שוב בעוד רגע.');
+    return;
+  }
+  showLoading(true);
+  try {
+    const pdf = await buildLetterPDF();
+    const subject = document.getElementById('letterSubject').value || 'מכתב מאתרוגי לוריא';
+    const filename = `מכתב_לוריא_${new Date().toLocaleDateString('he-IL').replace(/\./g, '-')}.pdf`;
+    const blob = pdf.output('blob');
+    const file = new File([blob], filename, { type: 'application/pdf' });
+    
+    // Try Web Share API (works on Android Chrome)
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: subject, text: subject });
+    } else {
+      // Fallback: download PDF
+      pdf.save(filename);
+      const recipient = document.getElementById('recipientContact').value;
+      if (recipient && recipient.includes('@')) {
+        setTimeout(() => {
+          window.location.href = `mailto:${recipient}?subject=${encodeURIComponent(subject)}`;
+        }, 1000);
+      }
+    }
+  } catch(e) {
+    if (e.name !== 'AbortError') {
+      console.error('Email error:', e);
+      alert('שגיאה. הקובץ יורד לטלפון — צרף אותו ידנית למייל.');
+    }
+  } finally {
+    showLoading(false);
+  }
+}
+
 
 function emailLetter() {
   const subject = document.getElementById('letterSubject').value || 'מכתב מאתרוגי לוריא';
@@ -1287,53 +1245,61 @@ class DigitalSignature {
     this.canvas.addEventListener('mouseup', () => this.stopDrawing());
     this.canvas.addEventListener('mouseout', () => this.stopDrawing());
     
-    // Touch events for mobile
+    // Touch events — direct handling for accurate mobile coordinates
     this.canvas.addEventListener('touchstart', (e) => {
       e.preventDefault();
       const touch = e.touches[0];
-      const mouseEvent = new MouseEvent('mousedown', {
-        clientX: touch.clientX,
-        clientY: touch.clientY
-      });
-      this.canvas.dispatchEvent(mouseEvent);
-    });
+      const rect = this.canvas.getBoundingClientRect();
+      const scaleX = this.canvas.width / rect.width;
+      const scaleY = this.canvas.height / rect.height;
+      this.isDrawing = true;
+      this.lastX = (touch.clientX - rect.left) * scaleX;
+      this.lastY = (touch.clientY - rect.top) * scaleY;
+    }, { passive: false });
     
     this.canvas.addEventListener('touchmove', (e) => {
       e.preventDefault();
+      if (!this.isDrawing) return;
       const touch = e.touches[0];
-      const mouseEvent = new MouseEvent('mousemove', {
-        clientX: touch.clientX,
-        clientY: touch.clientY
-      });
-      this.canvas.dispatchEvent(mouseEvent);
-    });
+      const rect = this.canvas.getBoundingClientRect();
+      const scaleX = this.canvas.width / rect.width;
+      const scaleY = this.canvas.height / rect.height;
+      const currentX = (touch.clientX - rect.left) * scaleX;
+      const currentY = (touch.clientY - rect.top) * scaleY;
+      this.ctx.beginPath();
+      this.ctx.moveTo(this.lastX, this.lastY);
+      this.ctx.lineTo(currentX, currentY);
+      this.ctx.stroke();
+      this.lastX = currentX;
+      this.lastY = currentY;
+    }, { passive: false });
     
     this.canvas.addEventListener('touchend', (e) => {
       e.preventDefault();
-      const mouseEvent = new MouseEvent('mouseup', {});
-      this.canvas.dispatchEvent(mouseEvent);
-    });
+      this.stopDrawing();
+    }, { passive: false });
   }
   
   startDrawing(e) {
     this.isDrawing = true;
     const rect = this.canvas.getBoundingClientRect();
-    this.lastX = e.clientX - rect.left;
-    this.lastY = e.clientY - rect.top;
+    const scaleX = this.canvas.width / rect.width;
+    const scaleY = this.canvas.height / rect.height;
+    this.lastX = (e.clientX - rect.left) * scaleX;
+    this.lastY = (e.clientY - rect.top) * scaleY;
   }
   
   draw(e) {
     if (!this.isDrawing) return;
-    
     const rect = this.canvas.getBoundingClientRect();
-    const currentX = e.clientX - rect.left;
-    const currentY = e.clientY - rect.top;
-    
+    const scaleX = this.canvas.width / rect.width;
+    const scaleY = this.canvas.height / rect.height;
+    const currentX = (e.clientX - rect.left) * scaleX;
+    const currentY = (e.clientY - rect.top) * scaleY;
     this.ctx.beginPath();
     this.ctx.moveTo(this.lastX, this.lastY);
     this.ctx.lineTo(currentX, currentY);
     this.ctx.stroke();
-    
     this.lastX = currentX;
     this.lastY = currentY;
   }
@@ -1342,6 +1308,31 @@ class DigitalSignature {
     if (this.isDrawing) {
       this.isDrawing = false;
       this.saveSignature();
+      this.showSavedSignature();
+    }
+  }
+  
+  showSavedSignature() {
+    if (!this.signatureData) return;
+    // Hide drawing UI
+    const container = document.getElementById('signatureContainer');
+    const enableBtn = document.getElementById('enableSignature');
+    const clearBtn = document.getElementById('clearSignature');
+    if (container) container.style.display = 'none';
+    if (enableBtn) enableBtn.style.display = 'none';
+    if (clearBtn) clearBtn.style.display = 'inline-block';
+    // Show signature image ON the signature line
+    const sigDisplay = document.getElementById('sigDisplay');
+    if (sigDisplay) {
+      sigDisplay.src = this.signatureData;
+      sigDisplay.style.display = 'block';
+      sigDisplay.classList.add('has-signature');
+    }
+    // Toast confirmation
+    const toast = document.getElementById('sigToast');
+    if (toast) {
+      toast.style.display = 'block'; toast.style.opacity = '1';
+      setTimeout(() => { toast.style.opacity='0'; setTimeout(()=>{toast.style.display='none';},400); }, 2000);
     }
   }
   
@@ -1359,7 +1350,7 @@ class DigitalSignature {
     
     // Hide saved signature display
     const sigDisplay = document.getElementById('sigDisplay');
-    if (sigDisplay) { sigDisplay.src = ''; sigDisplay.style.display = 'none'; }
+    if (sigDisplay) { sigDisplay.src = ''; sigDisplay.style.display = 'none'; sigDisplay.classList.remove('has-signature'); }
     
     // Restore buttons to initial state
     const enableBtn = document.getElementById('enableSignature');
@@ -1395,10 +1386,12 @@ function toggleStamp() {
   if (stampActive) {
     stampImg.src = stampData.src;
     stampArea.style.display = 'block';
+    stampArea.classList.add('stamp-visible');
     btn.textContent = '✅ חותמת פעילה';
     btn.classList.add('stamp-active');
   } else {
     stampArea.style.display = 'none';
+    stampArea.classList.remove('stamp-visible');
     btn.textContent = '📮 הוסף חותמת';
     btn.classList.remove('stamp-active');
   }
