@@ -976,14 +976,24 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function updateDate() {
   const now = new Date();
-  const options = { 
-    year: 'numeric', 
-    month: 'long', 
-    day: 'numeric',
-    weekday: 'long'
-  };
-  const hebrewDate = now.toLocaleDateString('he-IL', options);
-  document.getElementById('letterDate').textContent = hebrewDate;
+  
+  // Gregorian date in Hebrew
+  const gregOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
+  const gregDate = now.toLocaleDateString('he-IL', gregOptions);
+  
+  // Hebrew calendar date
+  const hebOptions = { year: 'numeric', month: 'long', day: 'numeric', calendar: 'hebrew' };
+  let hebDate = '';
+  try {
+    hebDate = now.toLocaleDateString('he-IL-u-ca-hebrew', hebOptions);
+  } catch(e) {
+    try {
+      hebDate = new Intl.DateTimeFormat('he', { calendar: 'hebrew', year: 'numeric', month: 'long', day: 'numeric' }).format(now);
+    } catch(e2) { hebDate = ''; }
+  }
+  
+  const dateEl = document.getElementById('letterDate');
+  dateEl.innerHTML = gregDate + (hebDate ? `<br><span style="font-size:0.9em;color:#555;">${hebDate}</span>` : '');
 }
 
 function setupEventListeners() {
@@ -1114,10 +1124,18 @@ async function generatePDF() {
   showLoading(true);
   try {
     const pdf = await buildLetterPDF();
-    const filename = `מכתב_לוריא_${new Date().toLocaleDateString('he-IL').replace(/\./g, '-')}.pdf`;
-    pdf.save(filename);
+    // Use Blob + object URL — most reliable on Android Chrome
+    const blob = pdf.output('blob');
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'מכתב_לוריא.pdf';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 2000);
   } catch(e) {
     console.error('PDF error:', e);
+    alert('שגיאה ביצירת PDF. מדפיס במקום...');
     window.print();
   } finally {
     showLoading(false);
@@ -1129,31 +1147,47 @@ async function emailLetter() {
     alert('מערכת PDF לא נטענה. נסה שוב בעוד רגע.');
     return;
   }
+  const recipient = document.getElementById('recipientContact').value.trim();
+  const subject = document.getElementById('letterSubject').value || 'מכתב מאתרוגי לוריא בע"מ';
+
   showLoading(true);
   try {
     const pdf = await buildLetterPDF();
-    const subject = document.getElementById('letterSubject').value || 'מכתב מאתרוגי לוריא';
-    const filename = `מכתב_לוריא_${new Date().toLocaleDateString('he-IL').replace(/\./g, '-')}.pdf`;
     const blob = pdf.output('blob');
-    const file = new File([blob], filename, { type: 'application/pdf' });
-    
-    // Try Web Share API (works on Android Chrome)
-    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: subject, text: subject });
-    } else {
-      // Fallback: download PDF
-      pdf.save(filename);
-      const recipient = document.getElementById('recipientContact').value;
-      if (recipient && recipient.includes('@')) {
-        setTimeout(() => {
-          window.location.href = `mailto:${recipient}?subject=${encodeURIComponent(subject)}`;
-        }, 1000);
-      }
+    const file = new File([blob], 'מכתב_לוריא.pdf', { type: 'application/pdf' });
+
+    // 1st try: Web Share API with file (Android Chrome supports this)
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        files: [file],
+        title: subject,
+        text: recipient ? `לכבוד ${document.getElementById('recipientName').value || ''}` : subject
+      });
+      return;
     }
+
+    // 2nd try: download + open mailto
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'מכתב_לוריא.pdf';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 2000);
+
+    if (recipient && recipient.includes('@')) {
+      setTimeout(() => {
+        window.location.href =
+          `mailto:${encodeURIComponent(recipient)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent('המכתב מצורף כקובץ PDF')}`;
+      }, 1500);
+    } else {
+      alert('הקובץ נשמר. פתח את אפליקציית המייל וצרף אותו.');
+    }
+
   } catch(e) {
     if (e.name !== 'AbortError') {
       console.error('Email error:', e);
-      alert('שגיאה. הקובץ יורד לטלפון — צרף אותו ידנית למייל.');
+      alert('שגיאה ביצירת הקובץ. נסה שוב.');
     }
   } finally {
     showLoading(false);
@@ -1161,14 +1195,7 @@ async function emailLetter() {
 }
 
 
-function emailLetter() {
-  const subject = document.getElementById('letterSubject').value || 'מכתב מאתרוגי לוריא';
-  const content = document.getElementById('letterContent').value;
-  const recipient = document.getElementById('recipientContact').value;
-  
-  const mailtoLink = `mailto:${recipient}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(content)}&from=lurietorgim@gmail.com`;
-  window.location.href = mailtoLink;
-}
+// (old emailLetter removed)
 
 function saveDraft() {
   const draft = {
