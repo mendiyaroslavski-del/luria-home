@@ -256,6 +256,17 @@ body::before {
   border-color: rgba(255,255,255,0.5);
 }
 
+.btn-whatsapp {
+  background: linear-gradient(135deg, #25D366, #128C7E);
+  color: white;
+  box-shadow: 0 4px 15px rgba(37,211,102,0.3);
+}
+
+.btn-whatsapp:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(37,211,102,0.45);
+}
+
 /* Letter preview */
 .letter-preview {
   flex: 1;
@@ -783,6 +794,10 @@ body::before {
         📧 שליחה באימייל
       </button>
       
+      <button class="btn btn-whatsapp" onclick="sendWhatsApp()">
+        💬 שליחה בוואטסאפ עסקי
+      </button>
+      
       <button class="btn btn-outline" onclick="saveDraft()">
         💾 שמירת טיוטה
       </button>
@@ -974,6 +989,24 @@ document.addEventListener('DOMContentLoaded', function() {
   setupEventListeners();
 });
 
+// Convert number to Hebrew gematria letters
+function toHebrewNumerals(n) {
+  const ones  = ['','א','ב','ג','ד','ה','ו','ז','ח','ט'];
+  const tens  = ['','י','כ','ל','מ','נ','ס','ע','פ','צ'];
+  const hunds = ['','ק','ר','ש','ת','תק','תר','תש','תת','תתק'];
+  let result = '';
+  if (n >= 1000) { result += ones[Math.floor(n/1000)] + "'"; n %= 1000; }
+  if (n >= 100)  { result += hunds[Math.floor(n/100)]; n %= 100; }
+  // Special cases to avoid divine names
+  if (n === 16) return result + 'טז';
+  if (n === 15) return result + 'טו';
+  if (n >= 10)  { result += tens[Math.floor(n/10)]; n %= 10; }
+  if (n > 0)    { result += ones[n]; }
+  // Add geresh/gershayim
+  if (result.length === 1) return result + "'";
+  return result.slice(0, -1) + '"' + result.slice(-1);
+}
+
 function updateDate() {
   const now = new Date();
   
@@ -981,19 +1014,27 @@ function updateDate() {
   const gregOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
   const gregDate = now.toLocaleDateString('he-IL', gregOptions);
   
-  // Hebrew calendar date
-  const hebOptions = { year: 'numeric', month: 'long', day: 'numeric', calendar: 'hebrew' };
+  // Hebrew calendar date — extract parts via Intl
   let hebDate = '';
   try {
-    hebDate = now.toLocaleDateString('he-IL-u-ca-hebrew', hebOptions);
-  } catch(e) {
-    try {
-      hebDate = new Intl.DateTimeFormat('he', { calendar: 'hebrew', year: 'numeric', month: 'long', day: 'numeric' }).format(now);
-    } catch(e2) { hebDate = ''; }
-  }
+    const fmt = new Intl.DateTimeFormat('he-u-ca-hebrew', {
+      year: 'numeric', month: 'long', day: 'numeric'
+    });
+    const parts = fmt.formatToParts(now);
+    const p = {};
+    parts.forEach(x => { p[x.type] = x.value; });
+    
+    // Day and year as Hebrew numerals (letters only, no Arabic digits)
+    const dayNum  = parseInt(p.day, 10);
+    const yearNum = parseInt(p.year, 10) % 1000; // drop millennium
+    const dayHeb  = toHebrewNumerals(dayNum);
+    const yearHeb = toHebrewNumerals(yearNum);
+    hebDate = `${dayHeb} ב${p.month} ${yearHeb}`;
+  } catch(e) { hebDate = ''; }
   
   const dateEl = document.getElementById('letterDate');
-  dateEl.innerHTML = gregDate + (hebDate ? `<br><span style="font-size:0.9em;color:#555;">${hebDate}</span>` : '');
+  dateEl.innerHTML = gregDate +
+    (hebDate ? `<br><span style="font-size:0.92em;color:#444;font-family:'Frank Ruhl Libre',serif;">${hebDate}</span>` : '');
 }
 
 function setupEventListeners() {
@@ -1196,6 +1237,95 @@ async function emailLetter() {
 
 
 // (old emailLetter removed)
+
+async function sendWhatsApp() {
+  if (!window.jsPDF || !window.html2canvas) {
+    alert('מערכת PDF לא נטענה. נסה שוב בעוד רגע.');
+    return;
+  }
+
+  // Get recipient phone number
+  const recipientContact = document.getElementById('recipientContact').value.trim();
+  const recipientName = document.getElementById('recipientName').value.trim();
+  
+  // Normalize Israeli phone number → international format
+  function normalizePhone(raw) {
+    let p = raw.replace(/[\s\-().+]/g, '');
+    if (p.startsWith('972')) return p;
+    if (p.startsWith('0')) return '972' + p.slice(1);
+    if (p.length >= 9) return '972' + p;
+    return p;
+  }
+
+  const greeting = recipientName
+    ? `שלום ${recipientName},
+מצורף מכתב מאתרוגי לוריא בע"מ.`
+    : 'מצורף מכתב מאתרוגי לוריא בע"מ.';
+
+  showLoading(true);
+  try {
+    const pdf = await buildLetterPDF();
+    const blob = pdf.output('blob');
+    const file = new File([blob], 'מכתב_לוריא.pdf', { type: 'application/pdf' });
+
+    // Method 1: Web Share API with file — user picks WhatsApp Business from share sheet
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        files: [file],
+        title: 'מכתב מאתרוגי לוריא בע"מ',
+        text: greeting
+      });
+      return;
+    }
+
+    // Method 2: WhatsApp Business deep link (Android intent)
+    // Saves PDF first, then opens WA Business with pre-filled message
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'מכתב_לוריא.pdf';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 2000);
+
+    // After short delay open WhatsApp Business
+    setTimeout(() => {
+      const phone = recipientContact ? normalizePhone(recipientContact) : '';
+      const msg = encodeURIComponent(greeting + '\n\nהקובץ נשמר לטלפון — צרף אותו לשיחה.');
+      
+      // Try WhatsApp Business app first (package: com.whatsapp.w4b)
+      const intentUrl = phone
+        ? `intent://send/${phone}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end`
+        : `intent://send#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end`;
+      
+      // Fallback to wa.me link (works in browser if app not installed)
+      const waUrl = phone
+        ? `https://wa.me/${phone}?text=${msg}`
+        : `https://wa.me/?text=${msg}`;
+
+      // Try intent first (Android); if fails browser will use waUrl
+      const tryIntent = document.createElement('a');
+      tryIntent.href = intentUrl;
+      document.body.appendChild(tryIntent);
+      tryIntent.click();
+      document.body.removeChild(tryIntent);
+      
+      // Fallback after 800ms if intent didn't open app
+      setTimeout(() => { window.open(waUrl, '_blank'); }, 800);
+    }, 1500);
+
+  } catch(e) {
+    if (e.name !== 'AbortError') {
+      console.error('WhatsApp error:', e);
+      // Last resort: just open WhatsApp Business with message
+      const phone = recipientContact ? normalizePhone(recipientContact) : '';
+      const msg = encodeURIComponent(greeting);
+      window.open(phone ? `https://wa.me/${phone}?text=${msg}` : 'https://wa.me/', '_blank');
+    }
+  } finally {
+    showLoading(false);
+  }
+}
 
 function saveDraft() {
   const draft = {
