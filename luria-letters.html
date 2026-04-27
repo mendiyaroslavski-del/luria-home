@@ -303,6 +303,44 @@ body::before {
   margin-bottom: 15px;
 }
 
+.company-text-header {
+  text-align: center;
+  width: 100%;
+  padding: 20px;
+  background: linear-gradient(135deg, #1a4a3a 0%, #2d5a3f 50%, #c9a84c 100%);
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+  color: white;
+}
+
+.company-name-main {
+  font-size: 2.2em;
+  font-weight: bold;
+  margin-bottom: 8px;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+  letter-spacing: 1px;
+}
+
+.company-reg {
+  font-size: 1.1em;
+  margin-bottom: 12px;
+  color: #f0f0f0;
+  font-weight: 500;
+}
+
+.company-details-line {
+  font-size: 0.95em;
+  margin-bottom: 8px;
+  color: #e8e8e8;
+  line-height: 1.4;
+}
+
+.company-contact {
+  font-size: 0.95em;
+  color: #f5f5f5;
+  font-weight: 500;
+}
+
 .company-logo {
   display: flex;
   align-items: center;
@@ -753,8 +791,15 @@ body::before {
       <!-- Letterhead -->
       <div class="letterhead">
         <div class="company-header">
-          <div class="full-logo">
-            <img src="data:image/jpeg;base64,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4mt2igDC/wCFYeGv+hd0L/wAi/8AiaP+FYeGv+hd0L/wAi/+JrdooAwv+FYeGv8AoXdC/wDACL/4mj/hWHhr/oXdC/8AACL/AOJrdooA/9X9/KKKKACiiigAooooAKKKKAP/1v38ooooAKKKKACiiigAooooA//X/fyiiigAooooAKKKKACiiigD/9D9/KKKKACiiigAooooAKKKKAP/0f38ooooAKKKKACiiigAooooA//S/fyiiigAooooAKKKKACiiigD/9P9/KKKKACiiigAooooAKKKKAP/1P38ooooAKKKKACiiigAooooA//V/fyiiigAooooAKKKKACiiigD/9b9/KKKKACiiigAooooAKKKKAP/1/38ooooAKKKKACiiigAooooA//Q/fyiiigAooooAKKKKACiiigD/9H9/KKKKACiiigAooooAKKKKAP/0v38ooooAKKKKACiiigAooooA//T/fyiiigAooooAKKKKACiiigD/9T9/KKKKACiiigAooooAKKKKAP/1f38ooooAKKKKACiiigAooooA//W/fyiiigAooooAKKKKACiiigD/9f9/KKKKACiiigAooooAKKKKAP/0P38ooooAKKKKACiiigAooooA//R/fyiiigAooooAKKKKACiiigD/9L9/KKKKACiiigAooooAKKKKAP/0/38ooooAKKKKACiiigAooooA//U/fyiiigAooooAKKKKACiiigD/9X9/KKKKACiiigAooooAKKKKAP/1v38ooooAKKKKACiiigAooooA//X/fyiiigAooooAKKKKACiiigD/9D9/KKKKACiiigAooooAKKKKAP/0f38ooooAKKKKACiiigAooooA//S/fyiiigAooooAKKKKACiiigD/9P9/KKCdoyaY1wiEZYAnigB9FN81f7w9adQAUUUUAFFFFAH/9T9/KKKKACiiigAooooAKKKzfE3jHSPBdil1rGqadpNtJKkCy3lykCNI5wiAsQCzHgDqTQB/9X9/KKRJBIMqQaWgAooooAKKKKACiiigD//1v38ooooAKKKKACiiigAooooA//X/fyiiigAooooAKKKKACiiigD/9D9/KKKKACiiigAooooAKKKKAP/0f38ooooAKKKKACiiigAooooA//S/fyiiigAooooAKKKKACiiigD/9P9/KKK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rPwH4V+GHwx+Gn7O/wAN/hl8QbDUNSh1ZNQ8ReOdYv7kNFeQ+WU+0MrGKJWdU8gqHKuxIJAP7ZqKKKAP/9H9/KKKKACiiigAooooAKKKKAP/0v38ooooAKKKKACiiigAooooA//T/fyiiigAooooAKKKKACiiigD/9T9/KKKKACiiigAooooAKKKKAP/1f38ooooAKKKKACiiigAooooA//W/fyiiigAooooAKKKKACiiigD/9f9/KKKKACiiigAooooAKKKKAP/0P38ooooAKKKKACiiigAooooA//R/fyiiigAooooAKKKKACiiigD/9L9/KKKKACiiigAooooAKKKKAP/0/38ooooAKKKKACiiigAooooA//U/fyiiigAooooAKKKKACiiigD/9X9/KKKKACiiigAooooAKKKKAP/1v38ooooAKKKKACiiigAooooA//X/fyiiigAooooAKKKKACiiigD/9D9/KKKKACiiigAooooAKKKKAP/0f38ooooAKKKKACiiigAooooA//S/fyiiigAooooAKKKKACiiigD/9P9/KKKKACiiigAooooAKKKKAP/1P38ooooAKKKKACiiigAooooA//V/fyiiigAooooAKKKKACiiigD/9b9/KKKKACiiigAooooAKKKKAP/1/38ooooAKKKKACiiigAooooA//Q/fyiiigAooooAKKKKACjFFFAH//R/fyiiigAooooAKKKKACiiigD/9L9/KKKKACiiigAooooAKKKKAP/0/38ooooAKKKKACiiigAooooA//U/fyiiigAooooAKKKKACiiigD/9X9/KKKKACiiigAooooAKKKKAP/1v38ooooAKKKKACiiigAooooA//X/fyiiigAooooAKKKKACiiigD/9D9/KKKKACiiigAooooAKKKKAP/0f38ooooAKKKKACiiigAooooA//S/fyiiigAooooAKKKKACiiigD/9P9/KKKKACiiigAooooAKKKKAP/1P38ooooAKKKKACiiigAooooA//V/fyiiigAooooAKKKKACiiigD/9b9/KKKKACiiigAooooAKKKKAP/1/38ooooAKKKKACiiigAooooA//Q/fyiiigAooooAKKKKACiiigD/9H9/KKKKACiiigAooooAKKKKAP/0v38ooooAKKKKACiiigAooooA//T/fyiiigAooooAKKKKACiiigD/9T9/KKKKACiiigAooooAKKKKAP/1f38ooooAKKKKACiiigAooooA//ZAAChDREAAABDYXB0dXJlZF9BcHBfSW5mb2V5SmpiMjF3SWpvaVkyOXRMbWx1WkhsdGIySnBiR1ZoY0hBdVpHOWpkVzFsYm5RdWMyTmhibTVsY2x3dlkyOXRMbWx1WkhsdGIySnBiR1Z1WVhCd0xtRmpkR2wyYVhSNUxsWnBaWGRRWVdkbGNrRmpkR2wyYVhSNUluMD0AAFEMFAAAAFNhbXN1bmdfQ2FwdHVyZV9JbmZvU2NyZWVuc2hvdAAAoQsYAAAAUGhvdG9FZGl0b3JfUmVfRWRpdF9EYXRheyJvcmlnaW5hbFBhdGgiOiJcL2RhdGFcL3NlY1wvcGhvdG9lZGl0b3JcLzBcLzFhOTkxZjM3ZjU2YjY2ODBlMzFhYTE2YmY4ZmQ4MGMyNzM3Y2Q4NWZiYjgzZTI4MTY4Njg1NmM3MGRiMjQ3ZDJfMzE3MDk1LmpwZyIsInJlcHJlc2VudGF0aXZlRnJhbWVMb2MiOi0xLCJzdGFydE1vdGlvblZpZGVvIjotMSwiZW5kTW90aW9uVmlkZW8iOi0xLCJpc01vdGlvblZpZGVvTXV0ZSI6ZmFsc2UsImlzVHJpbU1vdGlvblZpZGVvIjpmYWxzZSwiY2xpcEluZm9WYWx1ZSI6IntcIm1DZW50ZXJYXCI6MC41MDAwMDAwNTk2MDQ2NDQ4LFwibUNlbnRlcllcIjowLjIxNDY4MDk2OTcxNTExODQsXCJtV2lkdGhcIjoxLFwibUhlaWdodFwiOjAuMTAwNTkzNjkzNTU0NDAxNCxcIm1Sb3RhdGlvblwiOjAsXCJtUm90YXRlXCI6MCxcIm1IRmxpcFwiOjAsXCJtVkZsaXBcIjowLFwibVJvdGF0aW9uRWZmZWN0XCI6MCxcIm1Sb3RhdGVFZmZlY3RcIjowLFwibUhGbGlwRWZmZWN0XCI6MCxcIm1WRmxpcEVmZmVjdFwiOjAsXCJtSG96UGVyc3BlY3RpdmVcIjowLFwibVZlclBlcnNwZWN0aXZlXCI6MH0iLCJ0b25lVmFsdWUiOiJ7XCJicmlnaHRuZXNzXCI6MTAwLFwiZXhwb3N1cmVcIjoxMDAsXCJjb250cmFzdFwiOjEwMCxcInNhdHVyYXRpb25cIjoxMDAsXCJodWVcIjoxMDAsXCJ3Yk1vZGVcIjotMSxcIndiVGVtcGVyYXR1cmVcIjoxMDAsXCJ0aW50XCI6MTAwLFwic2hhZG93XCI6MTAwLFwiaGlnaGxpZ2h0XCI6MTAwLFwibGlnaHRiYWxhbmNlXCI6MTAwLFwic2hhcnBuZXNzXCI6MTAwLFwiZGVmaW5pdGlvblwiOjEwMCxcImlzQnJpZ2h0bmVzc0lQRVwiOmZhbHNlLFwiaXNFeHBvc3VyZUlQRVwiOmZhbHNlLFwiaXNDb250cmFzdElQRVwiOmZhbHNlLFwiaXNTYXR1cmF0aW9uSVBFXCI6ZmFsc2V9IiwiZWZmZWN0VmFsdWUiOiJ7XCJmaWx0ZXJJbmRpY2F0aW9uXCI6NDA5NyxcImFscGhhVmFsdWVcIjoxMDAsXCJmaWx0ZXJUeXBlXCI6MH0iLCJwb3J0cmFpdEVmZmVjdFZhbHVlIjoie1wiZWZmZWN0SWRcIjotMSxcImVmZmVjdExldmVsXCI6LTEsXCJleGlmUm90YXRpb25cIjowLFwibGlnaHRMZXZlbFwiOjAsXCJ0b3VjaFhcIjowLFwidG91Y2hZXCI6MCxcInJlZm9jdXNYXCI6LTEsXCJyZWZvY3VzWVwiOi0xLFwiZWZmZWN0SWRPcmlnaW5hbFwiOi0xLFwiZWZmZWN0TGV2ZWxPcmlnaW5hbFwiOi0xLFwibGlnaHRMZXZlbE9yaWdpbmFsXCI6LTEsXCJ0b3VjaFhPcmlnaW5hbFwiOjAsXCJ0b3VjaFlPcmlnaW5hbFwiOjAsXCJyZWZvY3VzWE9yaWdpbmFsXCI6LTEsXCJyZWZvY3VzWU9yaWdpbmFsXCI6LTEsXCJ3YXRlck1hcmtSZW1vdmVkXCI6ZmFsc2UsXCJ3YXRlck1hcmtSZW1vdmVkT3JpZ2luYWxcIjpmYWxzZX0iLCJpc0JsZW5kaW5nIjp0cnVlLCJpc05vdFJlRWRpdCI6ZmFsc2UsInNlcFZlcnNpb24iOiIxNzAwMDAiLCJuZGVWZXJzaW9uIjoxLCJyZVNpemUiOjQsImlzU2NhbGVBSSI6ZmFsc2UsInJvdGF0aW9uIjoxLCJhZGp1c3RtZW50VmFsdWUiOiJ7XCJtQ3JvcFN0YXRlXCI6MTMxMDc2fSIsImlzQXBwbHlTaGFwZUNvcnJlY3Rpb24iOmZhbHNlLCJpc05ld1JlRWRpdE9ubHkiOmZhbHNlLCJpc0RlY29SZUVkaXRPbmx5IjpmYWxzZSwiaXNBSUZpbHRlclJlRWRpdE9ubHkiOmZhbHNlfQAAoQsWAAAAT3JpZ2luYWxfUGF0aF9IYXNoX0tleWUzZDk2MzQzNTQ2MmIwMDE0YTVmNzBiNWFmMWFmNDc0ODVlMDI2Mzk0NjNkZmFjNzViYjM2NWI3Nzk3YTQwZGMvMzE3MDk1U0VGSGsAAAAEAAAAAAChDZsHAACVAAAAAABRDAYHAAAmAAAAAAChC+AGAAB7BgAAAAChC2UAAABlAAAAPAAAAFNFRlQ=" alt="אתרוגי לוריא בע"מ" style="max-width: 100%; height: auto; margin-bottom: 20px;">
+          <div class="company-text-header">
+            <div class="company-name-main">אתרוגי לוריא בע"מ</div>
+            <div class="company-reg">ח.פ. 516151610</div>
+            <div class="company-details-line">
+              רח' הרב מרדכי ש. אשכנזי 10, כפר חב"ד | ת.ד. 1031 מיקוד: 6084000
+            </div>
+            <div class="company-contact">
+              📞 03-9606741 | 📠 03-9606705 | 📧 lurietrogim@gmail.com
+            </div>
           </div>
         </div>
       </div>
@@ -996,27 +1041,120 @@ async function generatePDF() {
       format: 'a4'
     });
     
-    // Add Hebrew font support (simplified)
-    const content = document.getElementById('letterPaper').innerText;
+    // Add company logo (use a simple header instead of image for better compatibility)
+    pdf.setFontSize(16);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('אתרוגי לוריא בע"מ', 105, 20, { align: 'center' });
     
-    pdf.text(content, 20, 20, {
-      maxWidth: 170,
-      align: 'right'
-    });
+    pdf.setFontSize(10);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text('ח.פ. 516151610', 105, 28, { align: 'center' });
+    pdf.text('רח\' הרב מרדכי ש. אשכנזי 10, כפר חב"ד', 105, 35, { align: 'center' });
+    pdf.text('📞 03-9606741 | 📧 lurietorgim@gmail.com', 105, 42, { align: 'center' });
     
-    // Add digital signature if exists
-    if (digitalSignature && digitalSignature.hasSignature()) {
-      const signatureData = digitalSignature.getSignatureData();
-      
-      // Add signature image to PDF
-      pdf.addImage(signatureData, 'PNG', 20, 240, 60, 25); // x, y, width, height
-      
-      // Add signature text
-      pdf.text('נחום לוריא', 20, 270, { align: 'right' });
-      pdf.text('מנהל, אתרוגי לוריא בע"מ', 20, 275, { align: 'right' });
+    // Add separator line
+    pdf.setLineWidth(0.5);
+    pdf.setDrawColor(201, 168, 76); // Gold color
+    pdf.line(20, 48, 190, 48);
+    
+    // Add date
+    const today = new Date().toLocaleDateString('he-IL');
+    pdf.setFontSize(10);
+    pdf.text(`תאריך: ${today}`, 170, 60, { align: 'right' });
+    
+    // Add recipient info if exists
+    const recipientName = document.getElementById('displayRecipientName').textContent;
+    const recipientAddress = document.getElementById('displayRecipientAddress').textContent;
+    const recipientContact = document.getElementById('displayRecipientContact').textContent;
+    
+    let yPosition = 70;
+    
+    if (recipientName) {
+      pdf.text(`לכבוד: ${recipientName}`, 170, yPosition, { align: 'right' });
+      yPosition += 7;
     }
     
-    const filename = `מכתב_${new Date().toLocaleDateString('he-IL').replace(/\./g, '-')}.pdf`;
+    if (recipientAddress) {
+      pdf.text(recipientAddress, 170, yPosition, { align: 'right' });
+      yPosition += 7;
+    }
+    
+    if (recipientContact) {
+      pdf.text(recipientContact, 170, yPosition, { align: 'right' });
+      yPosition += 10;
+    } else {
+      yPosition += 10;
+    }
+    
+    // Add subject
+    const subject = document.getElementById('displaySubject').textContent;
+    if (subject) {
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(`נושא: ${subject}`, 170, yPosition, { align: 'right' });
+      yPosition += 15;
+    } else {
+      yPosition += 10;
+    }
+    
+    // Add letter content
+    pdf.setFont('helvetica', 'normal');
+    const content = document.getElementById('displayContent').textContent || document.getElementById('letterContent').value;
+    
+    // Split content into lines for better formatting
+    const lines = pdf.splitTextToSize(content, 150);
+    
+    for (let i = 0; i < lines.length; i++) {
+      if (yPosition > 250) { // If approaching end of page
+        pdf.addPage();
+        yPosition = 20;
+      }
+      pdf.text(lines[i], 170, yPosition, { align: 'right' });
+      yPosition += 6;
+    }
+    
+    // Add digital signature at the bottom
+    if (digitalSignature && digitalSignature.hasSignature()) {
+      // Ensure we have enough space for signature
+      if (yPosition > 230) {
+        pdf.addPage();
+        yPosition = 20;
+      } else {
+        yPosition += 20; // Add some space before signature
+      }
+      
+      const signatureData = digitalSignature.getSignatureData();
+      
+      // Add signature image in the signature area
+      pdf.addImage(signatureData, 'PNG', 120, yPosition, 50, 20);
+      
+      // Add signature line and text BELOW the signature image
+      pdf.setLineWidth(0.3);
+      pdf.setDrawColor(0, 0, 0);
+      pdf.line(110, yPosition + 25, 170, yPosition + 25);
+      
+      pdf.setFontSize(9);
+      pdf.text('נחום לוריא', 170, yPosition + 30, { align: 'right' });
+      pdf.text('מנהל, אתרוגי לוריא בע"מ', 170, yPosition + 35, { align: 'right' });
+    } else {
+      // Add signature line even without digital signature
+      if (yPosition > 230) {
+        pdf.addPage();
+        yPosition = 20;
+      } else {
+        yPosition += 30;
+      }
+      
+      pdf.setLineWidth(0.3);
+      pdf.setDrawColor(0, 0, 0);
+      pdf.line(110, yPosition, 170, yPosition);
+      
+      pdf.setFontSize(9);
+      pdf.text('חתימה', 175, yPosition - 3, { align: 'right' });
+      pdf.text('נחום לוריא', 170, yPosition + 7, { align: 'right' });
+      pdf.text('מנהל, אתרוגי לוריא בע"מ', 170, yPosition + 12, { align: 'right' });
+    }
+    
+    const filename = `מכתב_לוריא_${new Date().toLocaleDateString('he-IL').replace(/\./g, '-')}.pdf`;
     pdf.save(filename);
     
   } catch (error) {
