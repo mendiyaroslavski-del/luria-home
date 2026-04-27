@@ -7,8 +7,38 @@
 <meta name="theme-color" content="#0f2118">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@300;400;700;900&family=Heebo:wght@300;400;500;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+// Lazy loader for PDF libraries — loads on demand, waits up to 15s
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) { existing.onload ? existing.addEventListener('load', resolve) : resolve(); return; }
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('Failed: ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+async function ensurePDFLibs() {
+  const JSPDF_CDN   = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+  const H2C_CDN     = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+  const JSPDF_ALT   = 'https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js';
+  const H2C_ALT     = 'https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js';
+
+  if (!window.jsPDF) {
+    try { await loadScript(JSPDF_CDN); }
+    catch(e) { await loadScript(JSPDF_ALT); }
+  }
+  if (!window.html2canvas) {
+    try { await loadScript(H2C_CDN); }
+    catch(e) { await loadScript(H2C_ALT); }
+  }
+  if (!window.jsPDF || !window.html2canvas)
+    throw new Error('ספריות PDF לא נטענו');
+}
+</script>
 <style>
 :root {
   --deep: #0f2118;
@@ -1184,15 +1214,12 @@ async function generatePDF() {
 }
 
 async function emailLetter() {
-  if (!window.jsPDF || !window.html2canvas) {
-    alert('מערכת PDF לא נטענה. נסה שוב בעוד רגע.');
-    return;
-  }
   const recipient = document.getElementById('recipientContact').value.trim();
   const subject = document.getElementById('letterSubject').value || 'מכתב מאתרוגי לוריא בע"מ';
 
   showLoading(true);
   try {
+    await ensurePDFLibs();
     const pdf = await buildLetterPDF();
     const blob = pdf.output('blob');
     const file = new File([blob], 'מכתב_לוריא.pdf', { type: 'application/pdf' });
@@ -1239,11 +1266,6 @@ async function emailLetter() {
 // (old emailLetter removed)
 
 async function sendWhatsApp() {
-  if (!window.jsPDF || !window.html2canvas) {
-    alert('מערכת PDF לא נטענה. נסה שוב בעוד רגע.');
-    return;
-  }
-
   // Get recipient phone number
   const recipientContact = document.getElementById('recipientContact').value.trim();
   const recipientName = document.getElementById('recipientName').value.trim();
@@ -1264,6 +1286,7 @@ async function sendWhatsApp() {
 
   showLoading(true);
   try {
+    await ensurePDFLibs();
     const pdf = await buildLetterPDF();
     const blob = pdf.output('blob');
     const file = new File([blob], 'מכתב_לוריא.pdf', { type: 'application/pdf' });
