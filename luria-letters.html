@@ -1134,10 +1134,34 @@ function printLetter() {
   window.print();
 }
 
+// Pre-draw letterhead onto a canvas and get data-URL
+// This avoids html2canvas choking on the embedded JPEG
+function getLetterheadDataURL() {
+  return new Promise(resolve => {
+    const lhImg = document.getElementById('letterheadImg');
+    if (!lhImg || !lhImg.complete || !lhImg.naturalWidth) { resolve(null); return; }
+    const c = document.createElement('canvas');
+    c.width = lhImg.naturalWidth;
+    c.height = lhImg.naturalHeight;
+    c.getContext('2d').drawImage(lhImg, 0, 0);
+    try { resolve(c.toDataURL('image/jpeg', 0.95)); }
+    catch(e) { resolve(null); }
+  });
+}
+
 // Core function: capture letter as image, build PDF blob
 async function buildLetterPDF() {
   const letterEl = document.getElementById('letterPaper');
-  
+  const lhImg = document.getElementById('letterheadImg');
+
+  // Temporarily replace letterhead img with canvas-rendered copy to avoid taint
+  let tempSrc = null;
+  if (lhImg) {
+    tempSrc = lhImg.src;
+    const dataUrl = await getLetterheadDataURL();
+    if (dataUrl) lhImg.src = dataUrl; // already data-URL, canvas won't taint
+  }
+
   // Temporarily hide signature UI for clean capture
   const sigOpts = document.getElementById('signatureOptions');
   const sigCont = document.getElementById('signatureContainer');
@@ -1146,14 +1170,19 @@ async function buildLetterPDF() {
   if (sigCont) sigCont.style.display = 'none';
   
   try {
-    // Render letter HTML to canvas image
-    const canvas = await html2canvas(letterEl, {
-      scale: 2,
-      useCORS: true,
+    // Render letter HTML to canvas image — with 20s timeout
+    const canvasPromise = html2canvas(letterEl, {
+      scale: 1.8,
+      useCORS: false,
       allowTaint: true,
       backgroundColor: '#ffffff',
-      logging: false
+      logging: false,
+      imageTimeout: 10000
     });
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('html2canvas timeout')), 20000)
+    );
+    const canvas = await Promise.race([canvasPromise, timeoutPromise]);
     
     const imgData = canvas.toDataURL('image/jpeg', 0.95);
     const { jsPDF } = window.jsPDF;
@@ -1184,6 +1213,7 @@ async function buildLetterPDF() {
     return pdf;
   } finally {
     if (sigOpts) sigOpts.style.visibility = sigOptsVis;
+    if (lhImg && tempSrc) lhImg.src = tempSrc; // restore original src
   }
 }
 
