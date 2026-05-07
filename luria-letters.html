@@ -311,7 +311,7 @@ body::before {
 .letter-paper {
   background: var(--white);
   min-height: 800px;
-  padding: 60px;
+  padding: 60px 0;
   color: var(--text-dark);
   font-family: 'Crimson Text', serif;
   font-size: 16px;
@@ -324,10 +324,13 @@ body::before {
   border-bottom: 2px solid var(--gold);
   padding-bottom: 25px;
   margin-bottom: 40px;
-  margin-left: -60px;
-  margin-right: -60px;
   position: relative;
   background: linear-gradient(135deg, rgba(201,168,76,0.03) 0%, transparent 50%);
+}
+
+/* Body content — padded horizontally */
+.letter-body {
+  padding: 0 60px;
 }
 
 .letterhead::after {
@@ -701,8 +704,8 @@ body::before {
   .sidebar { display: none; }
   .container { padding: 0; max-width: none; }
   .letter-preview { box-shadow: none; border-radius: 0; }
-  .letter-paper { padding: 40px; min-height: auto; }
-  .letterhead { margin-left: -40px; margin-right: -40px; }
+  .letter-paper { padding: 40px 0; min-height: auto; }
+  .letter-body { padding: 0 40px; }
   
   /* HIDE all signature UI - only show drawn signature image */
   .signature-options { display: none !important; }
@@ -852,6 +855,9 @@ body::before {
              style="width:100%;max-width:100%;display:block;">
       </div>
 
+      <!-- Letter Body (padded horizontally) -->
+      <div class="letter-body">
+
       <!-- Letter Content -->
       <div class="letter-date" id="letterDate"></div>
       
@@ -916,8 +922,9 @@ body::before {
         </div>
         <div class="signature-name">נחום לוריא</div>
       </div>
-    </div>
-  </div>
+
+      </div><!-- /letter-body -->
+    </div><!-- /letter-paper -->
 </div>
 
 <script>
