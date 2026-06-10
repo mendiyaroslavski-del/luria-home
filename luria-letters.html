@@ -321,7 +321,7 @@ body::before {
 
 /* Letterhead — full bleed, no top margin */
 .letterhead {
-  border-bottom: 2px solid var(--gold);
+  border-bottom: none;
   padding-bottom: 0;
   margin-bottom: 0;
   position: relative;
@@ -333,15 +333,7 @@ body::before {
   padding: 30px 60px 0 60px;
 }
 
-.letterhead::after {
-  content: '';
-  position: absolute;
-  bottom: -2px;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--gold), transparent);
-}
+.letterhead::after { display: none; }
 
 .company-header {
   display: flex;
