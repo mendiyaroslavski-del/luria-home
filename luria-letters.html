@@ -837,6 +837,10 @@ body::before {
       <button class="btn btn-outline" onclick="saveDraft()">
         💾 שמירת טיוטה
       </button>
+      
+      <button class="btn btn-outline" onclick="openDrafts()">
+        📂 טיוטות שמורות
+      </button>
     </div>
     
     <div class="loading">
@@ -877,7 +881,7 @@ body::before {
 
       <div id="sigToast" style="display:none;position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#2d6a4f;color:white;padding:12px 24px;border-radius:30px;font-size:15px;font-weight:700;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.3);transition:opacity 0.4s;">✅ חתימה נשמרה!</div>
 
-      <div class="signature-area">
+      <div class="signature-area" style="display:flex; flex-direction:column; align-items:flex-start;">
         <!-- Buttons - hidden after signing & in print -->
         <div class="signature-options" id="signatureOptions">
           <button type="button" id="enableSignature" class="signature-btn">
@@ -911,7 +915,7 @@ body::before {
           </div>
         </div>
         
-        <!-- Signature line: stamp + digital signature layered on top -->
+        <!-- Signature line: stamp + digital signature layered on top — aligned LEFT -->
         <div class="signature-line" style="position:relative; height:57px; width:173px; border-bottom:1px solid #6c757d; margin-bottom:8px;">
           <!-- Stamp sits on the line -->
           <img id="stampImg" src="" alt="חותמת" 
@@ -1073,8 +1077,7 @@ function updateDate() {
   } catch(e) { hebDate = ''; }
   
   const dateEl = document.getElementById('letterDate');
-  dateEl.innerHTML = gregDate +
-    (hebDate ? `<br><span style="font-size:0.92em;color:#444;font-family:'Frank Ruhl Libre',serif;">${hebDate}</span>` : '');
+  dateEl.innerHTML = (hebDate ? `<span style="font-size:0.92em;color:#444;font-family:'Frank Ruhl Libre',serif;">${hebDate}</span><br>` : '') + gregDate;
 }
 
 function setupEventListeners() {
@@ -1397,6 +1400,43 @@ function saveDraft() {
   localStorage.setItem('luriaDrafts', JSON.stringify(drafts));
   
   alert('טיוטה נשמרה בהצלחה!');
+}
+
+function openDrafts() {
+  const drafts = JSON.parse(localStorage.getItem('luriaDrafts') || '[]');
+  if (drafts.length === 0) {
+    alert('אין טיוטות שמורות.');
+    return;
+  }
+
+  // Build a simple selection dialog
+  let msg = 'בחר טיוטה לטעינה (הקלד מספר):\n\n';
+  drafts.forEach((d, i) => {
+    const dt = new Date(d.date).toLocaleDateString('he-IL', { day:'numeric', month:'long', year:'numeric' });
+    msg += `${i + 1}. ${dt} — ${d.subject || '(ללא נושא)'}\n`;
+  });
+
+  const choice = prompt(msg);
+  if (!choice) return;
+  const idx = parseInt(choice, 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= drafts.length) {
+    alert('מספר לא תקין.');
+    return;
+  }
+
+  const d = drafts[idx];
+  document.getElementById('recipientName').value    = d.recipientName    || '';
+  document.getElementById('recipientAddress').value = d.recipientAddress || '';
+  document.getElementById('recipientContact').value = d.recipientContact || '';
+  document.getElementById('letterSubject').value    = d.subject          || '';
+  document.getElementById('letterContent').value    = d.content          || '';
+  updatePreview();
+
+  const deleteDraft = confirm('הטיוטה נטענה.\nהאם למחוק אותה מהרשימה?');
+  if (deleteDraft) {
+    drafts.splice(idx, 1);
+    localStorage.setItem('luriaDrafts', JSON.stringify(drafts));
+  }
 }
 
 // Load saved drafts
