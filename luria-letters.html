@@ -935,13 +935,13 @@ body::before {
         </div>
         
         <!-- Signature line: stamp + digital signature layered on top — aligned LEFT -->
-        <div class="signature-line" style="position:relative; height:90px; width:280px; border-bottom:1px solid #6c757d; margin-bottom:8px;">
+        <div class="signature-line" style="position:relative; height:57px; width:173px; border-bottom:1px solid #6c757d; margin-bottom:8px;">
           <!-- Stamp sits on the line -->
           <img id="stampImg" src="" alt="חותמת" 
-               style="display:none; position:absolute; bottom:3px; right:0; max-height:78px; max-width:270px; opacity:0.82;">
+               style="display:none; position:absolute; bottom:3px; right:0; max-height:49px; max-width:165px; opacity:0.82;">
           <!-- Digital signature overlays the stamp -->
           <img id="sigDisplay" alt="חתימה"
-               style="display:none; position:absolute; bottom:4px; right:8px; max-height:72px; max-width:255px; z-index:2;">
+               style="display:none; position:absolute; bottom:4px; right:8px; max-height:45px; max-width:155px; z-index:2;">
         </div>
         <div class="signature-name">נחום לוריא</div>
       </div>
@@ -1514,7 +1514,7 @@ class DigitalSignature {
     this.canvas.width = 480;
     this.canvas.height = 165;
     this.canvas.style.width = "100%";
-    this.canvas.style.maxWidth = "320px";
+    this.canvas.style.maxWidth = "480px";
     
     // Set drawing properties
     this.ctx.strokeStyle = '#000';
