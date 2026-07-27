@@ -219,6 +219,7 @@ body::before {
 .app-card:nth-child(2) { animation-delay: 0.5s; }
 .app-card:nth-child(3) { animation-delay: 0.65s; }
 .app-card:nth-child(4) { animation-delay: 0.8s; }
+.app-card:nth-child(5) { animation-delay: 0.95s; }
 
 .app-card::before {
   content: '';
@@ -343,6 +344,20 @@ body::before {
 .purchases .arrow-icon { background: rgba(82,183,136,0.15); }
 .harvest   .arrow-icon { background: rgba(201,168,76,0.15); }
 .letters   .arrow-icon { background: rgba(160,120,220,0.15); }
+
+.app-card.debts:hover { border-color: rgba(224,122,95,0.5); box-shadow: 0 24px 60px rgba(224,122,95,0.2); }
+.app-card.debts::after {
+  content: '';
+  position: absolute;
+  top: 0; right: 0;
+  width: 180px; height: 180px;
+  background: radial-gradient(circle, rgba(224,122,95,0.12), transparent 70%);
+  pointer-events: none;
+}
+.debts .card-icon { background: rgba(224,122,95,0.15); border: 1px solid rgba(224,122,95,0.25); }
+.debts .tag { background: rgba(224,122,95,0.12); color: #e07a5f; border: 1px solid rgba(224,122,95,0.2); }
+.debts .card-arrow { color: #e07a5f; }
+.debts .arrow-icon { background: rgba(224,122,95,0.15); }
 .app-card:hover .arrow-icon { transform: translateX(-4px); }
 
 /* ── Footer ── */
@@ -501,6 +516,28 @@ body::before {
           <span class="tag">תבניות</span>
           <span class="tag">PDF</span>
           <span class="tag">הדפסה</span>
+        </div>
+      </div>
+      <div class="card-arrow">
+        <span>כניסה למערכת</span>
+        <div class="arrow-icon">←</div>
+      </div>
+    </a>
+
+    <!-- Card 5: Debt Tracking -->
+    <a class="app-card debts" href="luria-debts.html">
+      <div class="card-icon">💰</div>
+      <div class="card-body">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div class="card-title" style="margin-bottom:0">מעקב חובות לקוחות</div>
+          <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(224,122,95,0.15);color:#e07a5f;border:1px solid rgba(224,122,95,0.2)">v1.0</span>
+        </div>
+        <div class="card-desc">רישום חובות לקוחות, תשלומים חלקיים, יתרות מתעדכנות והפקת PDF לכל לקוח.</div>
+        <div class="card-tags">
+          <span class="tag">לקוחות</span>
+          <span class="tag">חובות</span>
+          <span class="tag">תשלומים</span>
+          <span class="tag">PDF</span>
         </div>
       </div>
       <div class="card-arrow">

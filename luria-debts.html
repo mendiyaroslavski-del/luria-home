@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>מעקב חובות לקוחות | אתרוגי לוריא</title>
+<meta name="theme-color" content="#0f2118">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@300;400;700;900&family=Heebo:wght@300;400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+:root {
+  --deep: #0f2118;
+  --forest: #1a3d2b;
+  --mid: #2d6a4f;
+  --light: #52b788;
+  --pale: #d8f3dc;
+  --gold: #c9a84c;
+  --gold-light: #f5e6c3;
+  --cream: #faf7f0;
+  --white: #ffffff;
+  --danger: #e07a5f;
+  --danger-bg: rgba(224,122,95,0.12);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Heebo', sans-serif;
+  background: var(--deep);
+  color: var(--white);
+  min-height: 100vh;
+  direction: rtl;
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 0%, rgba(45,106,79,0.22) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 60% at 100% 100%, rgba(201,168,76,0.1) 0%, transparent 55%);
+  pointer-events: none;
+  z-index: 0;
+}
+.wrap { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; padding: 20px 16px 60px; }
+
+/* Header */
+.top { text-align: center; padding: 18px 0 22px; }
+.top-title {
+  font-family: 'Frank Ruhl Libre', serif;
+  font-weight: 900;
+  font-size: clamp(24px, 6vw, 30px);
+  background: linear-gradient(135deg, #f5e6c3 0%, #c9a84c 45%, #f5e6c3 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.top-sub { font-size: 11px; letter-spacing: 2px; color: rgba(255,255,255,0.4); margin-top: 4px; text-transform: uppercase; }
+
+/* Summary strip */
+.summary-bar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.summary-card {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  padding: 14px 10px;
+  text-align: center;
+}
+.summary-num { font-family: 'Frank Ruhl Libre', serif; font-size: 20px; font-weight: 700; }
+.summary-num.owe { color: var(--danger); }
+.summary-num.paid { color: var(--light); }
+.summary-label { font-size: 10px; color: rgba(255,255,255,0.45); margin-top: 4px; }
+
+/* Search + add */
+.controls { display: flex; gap: 10px; margin-bottom: 16px; }
+.search-input {
+  flex: 1;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: var(--white);
+  font-family: 'Heebo', sans-serif;
+  font-size: 14px;
+}
+.search-input::placeholder { color: rgba(255,255,255,0.35); }
+.btn {
+  border: none;
+  border-radius: 12px;
+  padding: 12px 18px;
+  font-family: 'Heebo', sans-serif;
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+.btn:active { transform: scale(0.97); }
+.btn-gold { background: linear-gradient(135deg, var(--gold-light), var(--gold)); color: var(--deep); }
+.btn-outline { background: transparent; border: 1px solid rgba(255,255,255,0.2); color: var(--white); }
+.btn-danger { background: var(--danger-bg); color: var(--danger); border: 1px solid rgba(224,122,95,0.3); }
+.btn-full { width: 100%; }
+.btn-sm { padding: 8px 12px; font-size: 12px; }
+
+/* Client cards */
+.client-card {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 16px;
+  padding: 16px 18px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+.client-card:hover { border-color: rgba(201,168,76,0.4); transform: translateY(-2px); }
+.client-card.clear { opacity: 0.7; }
+.client-row { display: flex; justify-content: space-between; align-items: center; }
+.client-name { font-family: 'Frank Ruhl Libre', serif; font-size: 17px; font-weight: 700; }
+.client-phone { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 2px; }
+.client-balance { font-family: 'Frank Ruhl Libre', serif; font-size: 18px; font-weight: 700; }
+.client-balance.owe { color: var(--danger); }
+.client-balance.clear { color: var(--light); }
+.client-meta { font-size: 11px; color: rgba(255,255,255,0.35); margin-top: 6px; }
+
+.empty-state {
+  text-align: center;
+  padding: 50px 20px;
+  color: rgba(255,255,255,0.35);
+  font-size: 14px;
+}
+
+/* Modal */
+.overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  z-index: 50; display: none; align-items: flex-end; justify-content: center;
+  backdrop-filter: blur(2px);
+}
+.overlay.open { display: flex; }
+.modal {
+  background: var(--forest);
+  border: 1px solid rgba(201,168,76,0.2);
+  border-radius: 22px 22px 0 0;
+  width: 100%; max-width: 760px;
+  max-height: 92vh; overflow-y: auto;
+  padding: 20px 18px 28px;
+  animation: slideUp 0.25s ease both;
+}
+@keyframes slideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.modal-title { font-family: 'Frank Ruhl Libre', serif; font-size: 19px; font-weight: 700; }
+.modal-close { background: rgba(255,255,255,0.08); border: none; color: var(--white); width: 32px; height: 32px; border-radius: 50%; font-size: 16px; cursor: pointer; }
+
+.field { margin-bottom: 12px; }
+.field label { display: block; font-size: 12px; color: rgba(255,255,255,0.55); margin-bottom: 5px; }
+.field input, .field textarea, .field select {
+  width: 100%;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  padding: 11px 12px;
+  color: var(--white);
+  font-family: 'Heebo', sans-serif;
+  font-size: 14px;
+}
+.field textarea { resize: vertical; min-height: 50px; }
+
+.tabs { display: flex; gap: 8px; margin: 14px 0; }
+.tab-btn {
+  flex: 1; padding: 9px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12);
+  background: transparent; color: rgba(255,255,255,0.6); font-family: 'Heebo'; font-size: 13px; cursor: pointer;
+}
+.tab-btn.active { background: rgba(201,168,76,0.15); border-color: rgba(201,168,76,0.4); color: var(--gold-light); }
+
+/* Detail balance box */
+.balance-box {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;
+  background: rgba(255,255,255,0.03); border-radius: 14px; padding: 14px; margin-bottom: 16px;
+}
+.balance-item { text-align: center; }
+.balance-item .n { font-family: 'Frank Ruhl Libre', serif; font-size: 17px; font-weight: 700; }
+.balance-item .l { font-size: 10px; color: rgba(255,255,255,0.4); margin-top: 3px; }
+
+/* Entries list */
+.entry-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 11px 4px; border-bottom: 1px solid rgba(255,255,255,0.06);
+  font-size: 13px;
+}
+.entry-left { display: flex; flex-direction: column; gap: 2px; }
+.entry-desc { font-weight: 500; }
+.entry-date { font-size: 11px; color: rgba(255,255,255,0.4); }
+.entry-amt { font-family: 'Frank Ruhl Libre', serif; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.entry-amt.debt { color: var(--danger); }
+.entry-amt.payment { color: var(--light); }
+.entry-del { background: none; border: none; color: rgba(255,255,255,0.3); cursor: pointer; font-size: 15px; padding: 2px 6px; }
+
+.section-title { font-size: 12px; letter-spacing: 1px; color: rgba(255,255,255,0.4); text-transform: uppercase; margin: 18px 0 8px; }
+
+.fab {
+  position: fixed; bottom: 22px; left: 22px; z-index: 40;
+  width: 56px; height: 56px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold-light), var(--gold));
+  color: var(--deep); border: none; font-size: 26px; cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+
+/* PDF print template (offscreen) */
+#pdf-render {
+  position: fixed; top: -9999px; left: -9999px;
+  width: 700px; background: #ffffff; color: #16281f;
+  font-family: 'Heebo', sans-serif; padding: 40px;
+}
+#pdf-render .p-head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom: 3px solid #c9a84c; padding-bottom: 16px; margin-bottom: 20px; }
+#pdf-render .p-co { font-family: 'Frank Ruhl Libre', serif; font-weight: 900; font-size: 22px; color: #1a3d2b; }
+#pdf-render .p-co-sub { font-size: 11px; color: #666; margin-top: 3px; }
+#pdf-render .p-doc-title { font-size: 13px; color: #c9a84c; font-weight: 700; text-align: left; }
+#pdf-render .p-doc-date { font-size: 11px; color: #888; text-align: left; margin-top: 3px; }
+#pdf-render .p-client { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+#pdf-render .p-client-sub { font-size: 12px; color: #777; margin-bottom: 18px; }
+#pdf-render .p-summary { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 22px; }
+#pdf-render .p-sbox { background: #f6f4ee; border-radius: 10px; padding: 12px; text-align: center; }
+#pdf-render .p-sbox .n { font-family: 'Frank Ruhl Libre', serif; font-size: 18px; font-weight: 700; }
+#pdf-render .p-sbox .l { font-size: 10px; color: #888; margin-top: 3px; }
+#pdf-render table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#pdf-render th { text-align: right; background: #1a3d2b; color: #fff; padding: 9px 10px; font-weight: 500; }
+#pdf-render td { padding: 8px 10px; border-bottom: 1px solid #e7e2d5; }
+#pdf-render tr:last-child td { font-weight: 700; border-top: 2px solid #1a3d2b; border-bottom:none; }
+#pdf-render .p-foot { margin-top: 22px; font-size: 10px; color: #999; text-align: center; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="top">
+    <div class="top-title">מעקב חובות לקוחות</div>
+    <div class="top-sub">אתרוגי לוריא בע"מ</div>
+  </div>
+
+  <div class="summary-bar">
+    <div class="summary-card">
+      <div class="summary-num owe" id="sum-owe">₪0</div>
+      <div class="summary-label">סה"כ חוב פתוח</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-num paid" id="sum-paid">₪0</div>
+      <div class="summary-label">סה"כ שולם</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-num" id="sum-count">0</div>
+      <div class="summary-label">לקוחות עם חוב</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <input type="text" class="search-input" id="search" placeholder="חיפוש לקוח...">
+    <button class="btn btn-gold" onclick="openNewClient()">+ לקוח</button>
+  </div>
+
+  <div id="client-list"></div>
+</div>
+
+<!-- New client modal -->
+<div class="overlay" id="overlay-new">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">לקוח חדש</div>
+      <button class="modal-close" onclick="closeModal('overlay-new')">✕</button>
+    </div>
+    <div class="field"><label>שם הלקוח *</label><input id="nc-name" placeholder="לדוגמה: יעקב כהן"></div>
+    <div class="field"><label>טלפון</label><input id="nc-phone" placeholder="050-0000000"></div>
+    <div class="field"><label>הערה</label><input id="nc-note" placeholder="לא חובה"></div>
+    <button class="btn btn-gold btn-full" onclick="saveNewClient()">שמור לקוח</button>
+  </div>
+</div>
+
+<!-- Client detail modal -->
+<div class="overlay" id="overlay-detail">
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <div class="modal-title" id="dt-name">—</div>
+        <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:2px" id="dt-phone"></div>
+      </div>
+      <button class="modal-close" onclick="closeModal('overlay-detail')">✕</button>
+    </div>
+
+    <div class="balance-box">
+      <div class="balance-item"><div class="n" style="color:var(--danger)" id="dt-debt">₪0</div><div class="l">חוב מקורי</div></div>
+      <div class="balance-item"><div class="n" style="color:var(--light)" id="dt-paid">₪0</div><div class="l">שולם</div></div>
+      <div class="balance-item"><div class="n" id="dt-balance">₪0</div><div class="l">יתרה</div></div>
+    </div>
+
+    <div style="display:flex; gap:8px; margin-bottom:14px;">
+      <button class="btn btn-outline" style="flex:1" onclick="exportClientPdf()">📄 הפק PDF</button>
+      <button class="btn btn-danger" onclick="deleteClient()">מחק לקוח</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" id="tab-debt-btn" onclick="switchTab('debt')">➕ הוספת חוב</button>
+      <button class="tab-btn" id="tab-payment-btn" onclick="switchTab('payment')">💵 רישום תשלום</button>
+    </div>
+
+    <div id="tab-debt">
+      <div class="field"><label>תאריך</label><input type="date" id="nd-date"></div>
+      <div class="field"><label>סכום (₪)</label><input type="number" inputmode="decimal" id="nd-amount" placeholder="0"></div>
+      <div class="field"><label>תיאור</label><input id="nd-desc" placeholder="לדוגמה: 4 מינים"></div>
+      <button class="btn btn-gold btn-full" onclick="addDebt()">הוספת שורת חוב</button>
+    </div>
+
+    <div id="tab-payment" style="display:none">
+      <div class="field"><label>תאריך</label><input type="date" id="np-date"></div>
+      <div class="field"><label>סכום ששולם (₪)</label><input type="number" inputmode="decimal" id="np-amount" placeholder="0"></div>
+      <div class="field"><label>הערה</label><input id="np-desc" placeholder="לדוגמה: מזומן / העברה"></div>
+      <button class="btn btn-gold btn-full" onclick="addPayment()">רישום תשלום</button>
+    </div>
+
+    <div class="section-title">היסטוריה</div>
+    <div id="entries-list"></div>
+  </div>
+</div>
+
+<button class="fab" onclick="openNewClient()">+</button>
+
+<!-- Offscreen PDF render target -->
+<div id="pdf-render"></div>
+
+<script>
+const K = 'ldebts1';
+let state = load();
+let currentClientId = null;
+
+function load(){
+  try { return JSON.parse(localStorage.getItem(K)) || { clients: [], entries: [] }; }
+  catch(e){ return { clients: [], entries: [] }; }
+}
+function save(){ localStorage.setItem(K, JSON.stringify(state)); }
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function fmt(n){ return '₪' + Number(n||0).toLocaleString('he-IL', {maximumFractionDigits:0}); }
+function today(){ return new Date().toISOString().slice(0,10); }
+function heDate(d){
+  if(!d) return '';
+  const [y,m,day] = d.split('-');
+  return `${day}/${m}/${y}`;
+}
+
+function clientEntries(id){ return state.entries.filter(e => e.clientId === id); }
+function clientTotals(id){
+  const es = clientEntries(id);
+  const debt = es.filter(e=>e.type==='debt').reduce((s,e)=>s+Number(e.amount),0);
+  const paid = es.filter(e=>e.type==='payment').reduce((s,e)=>s+Number(e.amount),0);
+  return { debt, paid, balance: debt - paid };
+}
+
+function renderAll(){
+  renderSummary();
+  renderClientList();
+}
+
+function renderSummary(){
+  let totalOwe = 0, totalPaid = 0, withDebt = 0;
+  state.clients.forEach(c => {
+    const t = clientTotals(c.id);
+    totalOwe += Math.max(t.balance,0);
+    totalPaid += t.paid;
+    if(t.balance > 0) withDebt++;
+  });
+  document.getElementById('sum-owe').textContent = fmt(totalOwe);
+  document.getElementById('sum-paid').textContent = fmt(totalPaid);
+  document.getElementById('sum-count').textContent = withDebt;
+}
+
+function renderClientList(){
+  const q = (document.getElementById('search').value || '').trim().toLowerCase();
+  const list = document.getElementById('client-list');
+  let clients = state.clients.map(c => ({ ...c, t: clientTotals(c.id) }));
+  if(q) clients = clients.filter(c => c.name.toLowerCase().includes(q));
+  clients.sort((a,b) => b.t.balance - a.t.balance);
+
+  if(clients.length === 0){
+    list.innerHTML = `<div class="empty-state">אין עדיין לקוחות רשומים.<br>לחץ על "+ לקוח" כדי להתחיל.</div>`;
+    return;
+  }
+
+  list.innerHTML = clients.map(c => {
+    const isClear = c.t.balance <= 0;
+    return `
+    <div class="client-card ${isClear?'clear':''}" onclick="openDetail('${c.id}')">
+      <div class="client-row">
+        <div>
+          <div class="client-name">${escapeHtml(c.name)}</div>
+          ${c.phone ? `<div class="client-phone">${escapeHtml(c.phone)}</div>` : ''}
+        </div>
+        <div class="client-balance ${isClear?'clear':'owe'}">${isClear ? '✓ סגור' : fmt(c.t.balance)}</div>
+      </div>
+      <div class="client-meta">${clientEntries(c.id).length} רשומות · חוב מקורי ${fmt(c.t.debt)} · שולם ${fmt(c.t.paid)}</div>
+    </div>`;
+  }).join('');
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+/* Modals */
+function openModal(id){ document.getElementById(id).classList.add('open'); }
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+
+function openNewClient(){
+  document.getElementById('nc-name').value = '';
+  document.getElementById('nc-phone').value = '';
+  document.getElementById('nc-note').value = '';
+  openModal('overlay-new');
+}
+function saveNewClient(){
+  const name = document.getElementById('nc-name').value.trim();
+  if(!name){ alert('נא להזין שם לקוח'); return; }
+  const c = { id: uid(), name, phone: document.getElementById('nc-phone').value.trim(), note: document.getElementById('nc-note').value.trim(), createdAt: today() };
+  state.clients.push(c);
+  save();
+  closeModal('overlay-new');
+  renderAll();
+}
+
+function openDetail(id){
+  currentClientId = id;
+  const c = state.clients.find(x => x.id === id);
+  if(!c) return;
+  document.getElementById('dt-name').textContent = c.name;
+  document.getElementById('dt-phone').textContent = c.phone || '';
+  document.getElementById('nd-date').value = today();
+  document.getElementById('np-date').value = today();
+  document.getElementById('nd-amount').value = '';
+  document.getElementById('nd-desc').value = '';
+  document.getElementById('np-amount').value = '';
+  document.getElementById('np-desc').value = '';
+  switchTab('debt');
+  renderDetail();
+  openModal('overlay-detail');
+}
+
+function renderDetail(){
+  if(!currentClientId) return;
+  const t = clientTotals(currentClientId);
+  document.getElementById('dt-debt').textContent = fmt(t.debt);
+  document.getElementById('dt-paid').textContent = fmt(t.paid);
+  const balEl = document.getElementById('dt-balance');
+  balEl.textContent = fmt(t.balance);
+  balEl.style.color = t.balance > 0 ? 'var(--danger)' : 'var(--light)';
+
+  const entries = clientEntries(currentClientId).slice().sort((a,b) => a.date.localeCompare(b.date));
+  const list = document.getElementById('entries-list');
+  if(entries.length === 0){
+    list.innerHTML = `<div class="empty-state" style="padding:24px 0">אין עדיין רשומות ללקוח זה.</div>`;
+    return;
+  }
+  list.innerHTML = entries.slice().reverse().map(e => `
+    <div class="entry-row">
+      <div class="entry-left">
+        <div class="entry-desc">${escapeHtml(e.description || (e.type==='debt' ? 'חוב' : 'תשלום'))}</div>
+        <div class="entry-date">${heDate(e.date)}</div>
+      </div>
+      <div class="entry-amt ${e.type}">
+        ${e.type==='debt' ? '+' : '−'}${fmt(e.amount)}
+        <button class="entry-del" onclick="deleteEntry('${e.id}')">✕</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function switchTab(tab){
+  document.getElementById('tab-debt').style.display = tab==='debt' ? 'block' : 'none';
+  document.getElementById('tab-payment').style.display = tab==='payment' ? 'block' : 'none';
+  document.getElementById('tab-debt-btn').classList.toggle('active', tab==='debt');
+  document.getElementById('tab-payment-btn').classList.toggle('active', tab==='payment');
+}
+
+function addDebt(){
+  const amount = parseFloat(document.getElementById('nd-amount').value);
+  if(!amount || amount <= 0){ alert('נא להזין סכום תקין'); return; }
+  const date = document.getElementById('nd-date').value || today();
+  const description = document.getElementById('nd-desc').value.trim();
+  state.entries.push({ id: uid(), clientId: currentClientId, type: 'debt', amount, date, description });
+  save();
+  document.getElementById('nd-amount').value = '';
+  document.getElementById('nd-desc').value = '';
+  renderDetail(); renderAll();
+}
+
+function addPayment(){
+  const amount = parseFloat(document.getElementById('np-amount').value);
+  if(!amount || amount <= 0){ alert('נא להזין סכום תקין'); return; }
+  const date = document.getElementById('np-date').value || today();
+  const description = document.getElementById('np-desc').value.trim();
+  state.entries.push({ id: uid(), clientId: currentClientId, type: 'payment', amount, date, description });
+  save();
+  document.getElementById('np-amount').value = '';
+  document.getElementById('np-desc').value = '';
+  renderDetail(); renderAll();
+}
+
+function deleteEntry(id){
+  if(!confirm('למחוק רשומה זו?')) return;
+  state.entries = state.entries.filter(e => e.id !== id);
+  save();
+  renderDetail(); renderAll();
+}
+
+function deleteClient(){
+  if(!confirm('למחוק את הלקוח וכל הרשומות שלו? פעולה זו אינה הפיכה.')) return;
+  state.clients = state.clients.filter(c => c.id !== currentClientId);
+  state.entries = state.entries.filter(e => e.clientId !== currentClientId);
+  save();
+  closeModal('overlay-detail');
+  renderAll();
+}
+
+document.getElementById('search').addEventListener('input', renderClientList);
+
+/* PDF export */
+async function exportClientPdf(){
+  const c = state.clients.find(x => x.id === currentClientId);
+  if(!c) return;
+  const t = clientTotals(c.id);
+  const entries = clientEntries(c.id).slice().sort((a,b) => a.date.localeCompare(b.date));
+
+  let running = 0;
+  const rows = entries.map(e => {
+    running += (e.type === 'debt' ? e.amount : -e.amount);
+    return `<tr>
+      <td>${heDate(e.date)}</td>
+      <td>${escapeHtml(e.description || (e.type==='debt'?'חוב':'תשלום'))}</td>
+      <td>${e.type==='debt' ? 'חוב' : 'תשלום'}</td>
+      <td>${e.type==='debt' ? '+' : '−'}${fmt(e.amount)}</td>
+      <td>${fmt(running)}</td>
+    </tr>`;
+  }).join('');
+
+  const totalRow = `<tr><td colspan="4">יתרה לתשלום</td><td>${fmt(t.balance)}</td></tr>`;
+
+  const el = document.getElementById('pdf-render');
+  el.innerHTML = `
+    <div class="p-head">
+      <div>
+        <div class="p-co">אתרוגי לוריא בע"מ</div>
+        <div class="p-co-sub">ח.פ. 516151610 · כפר חב"ד · 03-9606741</div>
+      </div>
+      <div>
+        <div class="p-doc-title">דו"ח יתרת חוב</div>
+        <div class="p-doc-date">הופק בתאריך ${heDate(today())}</div>
+      </div>
+    </div>
+    <div class="p-client">${escapeHtml(c.name)}</div>
+    <div class="p-client-sub">${c.phone ? escapeHtml(c.phone) : ''}</div>
+    <div class="p-summary">
+      <div class="p-sbox"><div class="n" style="color:#c0392b">${fmt(t.debt)}</div><div class="l">סה"כ חוב מקורי</div></div>
+      <div class="p-sbox"><div class="n" style="color:#2d6a4f">${fmt(t.paid)}</div><div class="l">סה"כ שולם</div></div>
+      <div class="p-sbox"><div class="n" style="color:#16281f">${fmt(t.balance)}</div><div class="l">יתרה לתשלום</div></div>
+    </div>
+    <table>
+      <thead><tr><th>תאריך</th><th>תיאור</th><th>סוג</th><th>סכום</th><th>יתרה</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="5" style="text-align:center;color:#999">אין רשומות</td></tr>'}${totalRow}</tbody>
+    </table>
+    <div class="p-foot">מסמך זה הופק אוטומטית ממערכת מעקב חובות לקוחות · אתרוגי לוריא בע"מ</div>
+  `;
+
+  await new Promise(r => setTimeout(r, 60));
+  const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+  const imgData = canvas.toDataURL('image/jpeg', 0.95);
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF('p', 'mm', 'a4');
+  const pageWidth = 210;
+  const imgWidth = pageWidth - 20;
+  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+  pdf.addImage(imgData, 'JPEG', 10, 10, imgWidth, imgHeight);
+  const safeName = c.name.replace(/[^\wא-ת\d]+/g, '_');
+  pdf.save(`חוב_${safeName}_${today()}.pdf`);
+}
+
+renderAll();
+</script>
+</body>
+</html>
