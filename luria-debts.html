@@ -267,6 +267,7 @@ body::before {
       <div class="modal-title">לקוח חדש</div>
       <button class="modal-close" onclick="closeModal('overlay-new')">✕</button>
     </div>
+    <button class="btn btn-outline btn-full" id="pick-contact-btn" style="display:none; margin-bottom:14px" onclick="pickContact()">📱 בחר מאנשי הקשר</button>
     <div class="field"><label>שם הלקוח *</label><input id="nc-name" placeholder="לדוגמה: יעקב כהן"></div>
     <div class="field"><label>טלפון</label><input id="nc-phone" placeholder="050-0000000"></div>
     <div class="field"><label>הערה</label><input id="nc-note" placeholder="לא חובה"></div>
@@ -406,11 +407,31 @@ function escapeHtml(s){
 function openModal(id){ document.getElementById(id).classList.add('open'); }
 function closeModal(id){ document.getElementById(id).classList.remove('open'); }
 
+const contactPickerSupported = ('contacts' in navigator && 'ContactsManager' in window);
+
 function openNewClient(){
   document.getElementById('nc-name').value = '';
   document.getElementById('nc-phone').value = '';
   document.getElementById('nc-note').value = '';
+  document.getElementById('pick-contact-btn').style.display = contactPickerSupported ? 'block' : 'none';
   openModal('overlay-new');
+}
+
+async function pickContact(){
+  try {
+    const props = ['name', 'tel'];
+    const opts = { multiple: false };
+    const contacts = await navigator.contacts.select(props, opts);
+    if(!contacts.length) return;
+    const c = contacts[0];
+    const name = (c.name && c.name[0]) || '';
+    const tel = (c.tel && c.tel[0]) || '';
+    if(name) document.getElementById('nc-name').value = name;
+    if(tel) document.getElementById('nc-phone').value = tel.replace(/\s/g, '');
+  } catch(err){
+    // המשתמש ביטל את הבחירה, או שהדפדפן חסם - אין צורך בהודעת שגיאה
+    console.log('Contact pick cancelled or failed:', err);
+  }
 }
 function saveNewClient(){
   const name = document.getElementById('nc-name').value.trim();
