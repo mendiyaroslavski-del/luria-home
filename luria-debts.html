@@ -286,11 +286,7 @@ body::before {
       <button class="modal-close" onclick="closeModal('overlay-detail')">✕</button>
     </div>
 
-    <div class="balance-box">
-      <div class="balance-item"><div class="n" style="color:var(--danger)" id="dt-debt">₪0</div><div class="l">חוב מקורי</div></div>
-      <div class="balance-item"><div class="n" style="color:var(--light)" id="dt-paid">₪0</div><div class="l">שולם</div></div>
-      <div class="balance-item"><div class="n" id="dt-balance">₪0</div><div class="l">יתרה</div></div>
-    </div>
+    <div id="balance-boxes"></div>
 
     <div style="display:flex; gap:8px; margin-bottom:14px;">
       <button class="btn btn-outline" style="flex:1" onclick="exportClientPdf()">📄 הפק PDF</button>
@@ -304,14 +300,34 @@ body::before {
 
     <div id="tab-debt">
       <div class="field"><label>תאריך</label><input type="date" id="nd-date"></div>
-      <div class="field"><label>סכום (₪)</label><input type="number" inputmode="decimal" id="nd-amount" placeholder="0"></div>
+      <div style="display:flex; gap:10px;">
+        <div class="field" style="flex:1"><label>סכום</label><input type="number" inputmode="decimal" id="nd-amount" placeholder="0"></div>
+        <div class="field" style="width:110px">
+          <label>מטבע</label>
+          <select id="nd-currency">
+            <option value="ILS">₪ שקל</option>
+            <option value="USD">$ דולר</option>
+            <option value="EUR">€ יורו</option>
+          </select>
+        </div>
+      </div>
       <div class="field"><label>תיאור</label><input id="nd-desc" placeholder="לדוגמה: 4 מינים"></div>
       <button class="btn btn-gold btn-full" onclick="addDebt()">הוספת שורת חוב</button>
     </div>
 
     <div id="tab-payment" style="display:none">
       <div class="field"><label>תאריך</label><input type="date" id="np-date"></div>
-      <div class="field"><label>סכום ששולם (₪)</label><input type="number" inputmode="decimal" id="np-amount" placeholder="0"></div>
+      <div style="display:flex; gap:10px;">
+        <div class="field" style="flex:1"><label>סכום ששולם</label><input type="number" inputmode="decimal" id="np-amount" placeholder="0"></div>
+        <div class="field" style="width:110px">
+          <label>מטבע</label>
+          <select id="np-currency">
+            <option value="ILS">₪ שקל</option>
+            <option value="USD">$ דולר</option>
+            <option value="EUR">€ יורו</option>
+          </select>
+        </div>
+      </div>
       <div class="field"><label>הערה</label><input id="np-desc" placeholder="לדוגמה: מזומן / העברה"></div>
       <button class="btn btn-gold btn-full" onclick="addPayment()">רישום תשלום</button>
     </div>
@@ -337,7 +353,17 @@ function load(){
 }
 function save(){ localStorage.setItem(K, JSON.stringify(state)); }
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
-function fmt(n){ return '₪' + Number(n||0).toLocaleString('he-IL', {maximumFractionDigits:0}); }
+
+const CURRENCIES = [
+  { code: 'ILS', symbol: '₪', label: '₪ שקל' },
+  { code: 'USD', symbol: '$', label: '$ דולר' },
+  { code: 'EUR', symbol: '€', label: '€ יורו' }
+];
+function currencyInfo(code){ return CURRENCIES.find(c => c.code === code) || CURRENCIES[0]; }
+function fmt(n, code){
+  const symbol = currencyInfo(code || 'ILS').symbol;
+  return symbol + Number(n||0).toLocaleString('he-IL', {maximumFractionDigits:0});
+}
 function today(){ return new Date().toISOString().slice(0,10); }
 function heDate(d){
   if(!d) return '';
@@ -346,11 +372,19 @@ function heDate(d){
 }
 
 function clientEntries(id){ return state.entries.filter(e => e.clientId === id); }
-function clientTotals(id){
+// Returns totals PER CURRENCY, since amounts in different currencies must never be summed together.
+// e.g. { ILS: {debt, paid, balance}, USD: {debt, paid, balance} } — only currencies actually used are included.
+function clientTotalsByCurrency(id){
   const es = clientEntries(id);
-  const debt = es.filter(e=>e.type==='debt').reduce((s,e)=>s+Number(e.amount),0);
-  const paid = es.filter(e=>e.type==='payment').reduce((s,e)=>s+Number(e.amount),0);
-  return { debt, paid, balance: debt - paid };
+  const map = {};
+  es.forEach(e => {
+    const code = e.currency || 'ILS';
+    if(!map[code]) map[code] = { debt: 0, paid: 0 };
+    if(e.type === 'debt') map[code].debt += Number(e.amount);
+    else map[code].paid += Number(e.amount);
+  });
+  Object.keys(map).forEach(code => { map[code].balance = map[code].debt - map[code].paid; });
+  return map;
 }
 
 function renderAll(){
@@ -358,25 +392,39 @@ function renderAll(){
   renderClientList();
 }
 
+function formatByCurrency(map){
+  const parts = CURRENCIES.filter(cur => map[cur.code]).map(cur => fmt(map[cur.code], cur.code));
+  return parts.length ? parts.join('<br>') : fmt(0);
+}
+
 function renderSummary(){
-  let totalOwe = 0, totalPaid = 0, withDebt = 0;
+  const oweByCur = {}, paidByCur = {};
+  let withDebt = 0;
   state.clients.forEach(c => {
-    const t = clientTotals(c.id);
-    totalOwe += Math.max(t.balance,0);
-    totalPaid += t.paid;
-    if(t.balance > 0) withDebt++;
+    const totals = clientTotalsByCurrency(c.id);
+    let owesSomething = false;
+    Object.keys(totals).forEach(code => {
+      oweByCur[code] = (oweByCur[code] || 0) + Math.max(totals[code].balance, 0);
+      paidByCur[code] = (paidByCur[code] || 0) + totals[code].paid;
+      if(totals[code].balance > 0) owesSomething = true;
+    });
+    if(owesSomething) withDebt++;
   });
-  document.getElementById('sum-owe').textContent = fmt(totalOwe);
-  document.getElementById('sum-paid').textContent = fmt(totalPaid);
+  document.getElementById('sum-owe').innerHTML = formatByCurrency(oweByCur);
+  document.getElementById('sum-paid').innerHTML = formatByCurrency(paidByCur);
   document.getElementById('sum-count').textContent = withDebt;
 }
 
 function renderClientList(){
   const q = (document.getElementById('search').value || '').trim().toLowerCase();
   const list = document.getElementById('client-list');
-  let clients = state.clients.map(c => ({ ...c, t: clientTotals(c.id) }));
+  let clients = state.clients.map(c => ({ ...c, totals: clientTotalsByCurrency(c.id) }));
   if(q) clients = clients.filter(c => c.name.toLowerCase().includes(q));
-  clients.sort((a,b) => b.t.balance - a.t.balance);
+  // Sort order only (mixing currencies numerically isn't a real total, just a rough ranking)
+  clients.sort((a,b) => {
+    const scoreOf = t => Object.values(t).reduce((s,v)=>s+v.balance,0);
+    return scoreOf(b.totals) - scoreOf(a.totals);
+  });
 
   if(clients.length === 0){
     list.innerHTML = `<div class="empty-state">אין עדיין לקוחות רשומים.<br>לחץ על "+ לקוח" כדי להתחיל.</div>`;
@@ -384,7 +432,11 @@ function renderClientList(){
   }
 
   list.innerHTML = clients.map(c => {
-    const isClear = c.t.balance <= 0;
+    const owedParts = CURRENCIES.filter(cur => c.totals[cur.code] && c.totals[cur.code].balance > 0)
+      .map(cur => fmt(c.totals[cur.code].balance, cur.code));
+    const isClear = owedParts.length === 0;
+    const metaParts = CURRENCIES.filter(cur => c.totals[cur.code])
+      .map(cur => `${cur.symbol} חוב ${fmt(c.totals[cur.code].debt, cur.code)} · שולם ${fmt(c.totals[cur.code].paid, cur.code)}`);
     return `
     <div class="client-card ${isClear?'clear':''}" onclick="openDetail('${c.id}')">
       <div class="client-row">
@@ -392,9 +444,9 @@ function renderClientList(){
           <div class="client-name">${escapeHtml(c.name)}</div>
           ${c.phone ? `<div class="client-phone">${escapeHtml(c.phone)}</div>` : ''}
         </div>
-        <div class="client-balance ${isClear?'clear':'owe'}">${isClear ? '✓ סגור' : fmt(c.t.balance)}</div>
+        <div class="client-balance ${isClear?'clear':'owe'}">${isClear ? '✓ סגור' : owedParts.join(' · ')}</div>
       </div>
-      <div class="client-meta">${clientEntries(c.id).length} רשומות · חוב מקורי ${fmt(c.t.debt)} · שולם ${fmt(c.t.paid)}</div>
+      <div class="client-meta">${clientEntries(c.id).length} רשומות${metaParts.length ? ' · ' + metaParts.join(' · ') : ''}</div>
     </div>`;
   }).join('');
 }
@@ -453,8 +505,10 @@ function openDetail(id){
   document.getElementById('np-date').value = today();
   document.getElementById('nd-amount').value = '';
   document.getElementById('nd-desc').value = '';
+  document.getElementById('nd-currency').value = 'ILS';
   document.getElementById('np-amount').value = '';
   document.getElementById('np-desc').value = '';
+  document.getElementById('np-currency').value = 'ILS';
   switchTab('debt');
   renderDetail();
   openModal('overlay-detail');
@@ -462,12 +516,30 @@ function openDetail(id){
 
 function renderDetail(){
   if(!currentClientId) return;
-  const t = clientTotals(currentClientId);
-  document.getElementById('dt-debt').textContent = fmt(t.debt);
-  document.getElementById('dt-paid').textContent = fmt(t.paid);
-  const balEl = document.getElementById('dt-balance');
-  balEl.textContent = fmt(t.balance);
-  balEl.style.color = t.balance > 0 ? 'var(--danger)' : 'var(--light)';
+  const totals = clientTotalsByCurrency(currentClientId);
+  const usedCurrencies = CURRENCIES.filter(cur => totals[cur.code]);
+  const boxesEl = document.getElementById('balance-boxes');
+
+  if(usedCurrencies.length === 0){
+    boxesEl.innerHTML = `
+      <div class="balance-box">
+        <div class="balance-item"><div class="n" style="color:var(--danger)">${fmt(0)}</div><div class="l">חוב מקורי</div></div>
+        <div class="balance-item"><div class="n" style="color:var(--light)">${fmt(0)}</div><div class="l">שולם</div></div>
+        <div class="balance-item"><div class="n">${fmt(0)}</div><div class="l">יתרה</div></div>
+      </div>`;
+  } else {
+    boxesEl.innerHTML = usedCurrencies.map((cur, i) => {
+      const t = totals[cur.code];
+      const balColor = t.balance > 0 ? 'var(--danger)' : 'var(--light)';
+      return `
+      ${usedCurrencies.length > 1 ? `<div style="font-size:11px;color:rgba(255,255,255,0.45);margin:${i>0?'12px':'0'} 0 5px 2px">${cur.label}</div>` : ''}
+      <div class="balance-box">
+        <div class="balance-item"><div class="n" style="color:var(--danger)">${fmt(t.debt, cur.code)}</div><div class="l">חוב מקורי</div></div>
+        <div class="balance-item"><div class="n" style="color:var(--light)">${fmt(t.paid, cur.code)}</div><div class="l">שולם</div></div>
+        <div class="balance-item"><div class="n" style="color:${balColor}">${fmt(t.balance, cur.code)}</div><div class="l">יתרה</div></div>
+      </div>`;
+    }).join('');
+  }
 
   const entries = clientEntries(currentClientId).slice().sort((a,b) => a.date.localeCompare(b.date));
   const list = document.getElementById('entries-list');
@@ -482,7 +554,7 @@ function renderDetail(){
         <div class="entry-date">${heDate(e.date)}</div>
       </div>
       <div class="entry-amt ${e.type}">
-        ${e.type==='debt' ? '+' : '−'}${fmt(e.amount)}
+        ${e.type==='debt' ? '+' : '−'}${fmt(e.amount, e.currency || 'ILS')}
         <button class="entry-del" onclick="deleteEntry('${e.id}')">✕</button>
       </div>
     </div>
@@ -501,7 +573,8 @@ function addDebt(){
   if(!amount || amount <= 0){ alert('נא להזין סכום תקין'); return; }
   const date = document.getElementById('nd-date').value || today();
   const description = document.getElementById('nd-desc').value.trim();
-  state.entries.push({ id: uid(), clientId: currentClientId, type: 'debt', amount, date, description });
+  const currency = document.getElementById('nd-currency').value;
+  state.entries.push({ id: uid(), clientId: currentClientId, type: 'debt', amount, date, description, currency });
   save();
   document.getElementById('nd-amount').value = '';
   document.getElementById('nd-desc').value = '';
@@ -513,7 +586,8 @@ function addPayment(){
   if(!amount || amount <= 0){ alert('נא להזין סכום תקין'); return; }
   const date = document.getElementById('np-date').value || today();
   const description = document.getElementById('np-desc').value.trim();
-  state.entries.push({ id: uid(), clientId: currentClientId, type: 'payment', amount, date, description });
+  const currency = document.getElementById('np-currency').value;
+  state.entries.push({ id: uid(), clientId: currentClientId, type: 'payment', amount, date, description, currency });
   save();
   document.getElementById('np-amount').value = '';
   document.getElementById('np-desc').value = '';
@@ -542,22 +616,51 @@ document.getElementById('search').addEventListener('input', renderClientList);
 async function exportClientPdf(){
   const c = state.clients.find(x => x.id === currentClientId);
   if(!c) return;
-  const t = clientTotals(c.id);
+  const totals = clientTotalsByCurrency(c.id);
+  const usedCurrencies = CURRENCIES.filter(cur => totals[cur.code]);
   const entries = clientEntries(c.id).slice().sort((a,b) => a.date.localeCompare(b.date));
 
-  let running = 0;
-  const rows = entries.map(e => {
-    running += (e.type === 'debt' ? e.amount : -e.amount);
-    return `<tr>
-      <td>${heDate(e.date)}</td>
-      <td>${escapeHtml(e.description || (e.type==='debt'?'חוב':'תשלום'))}</td>
-      <td>${e.type==='debt' ? 'חוב' : 'תשלום'}</td>
-      <td>${e.type==='debt' ? '+' : '−'}${fmt(e.amount)}</td>
-      <td>${fmt(running)}</td>
-    </tr>`;
-  }).join('');
-
-  const totalRow = `<tr><td colspan="4">יתרה לתשלום</td><td>${fmt(t.balance)}</td></tr>`;
+  let sectionsHtml = '';
+  if(usedCurrencies.length === 0){
+    sectionsHtml = `
+      <div class="p-summary">
+        <div class="p-sbox"><div class="n" style="color:#c0392b">${fmt(0)}</div><div class="l">סה"כ חוב מקורי</div></div>
+        <div class="p-sbox"><div class="n" style="color:#2d6a4f">${fmt(0)}</div><div class="l">סה"כ שולם</div></div>
+        <div class="p-sbox"><div class="n" style="color:#16281f">${fmt(0)}</div><div class="l">יתרה לתשלום</div></div>
+      </div>
+      <table>
+        <thead><tr><th>תאריך</th><th>תיאור</th><th>סוג</th><th>סכום</th><th>יתרה</th></tr></thead>
+        <tbody><tr><td colspan="5" style="text-align:center;color:#999">אין רשומות</td></tr></tbody>
+      </table>`;
+  } else {
+    usedCurrencies.forEach(cur => {
+      const t = totals[cur.code];
+      const curEntries = entries.filter(e => (e.currency || 'ILS') === cur.code);
+      let running = 0;
+      const rows = curEntries.map(e => {
+        running += (e.type === 'debt' ? e.amount : -e.amount);
+        return `<tr>
+          <td>${heDate(e.date)}</td>
+          <td>${escapeHtml(e.description || (e.type==='debt'?'חוב':'תשלום'))}</td>
+          <td>${e.type==='debt' ? 'חוב' : 'תשלום'}</td>
+          <td>${e.type==='debt' ? '+' : '−'}${fmt(e.amount, cur.code)}</td>
+          <td>${fmt(running, cur.code)}</td>
+        </tr>`;
+      }).join('');
+      const totalRow = `<tr><td colspan="4">יתרה לתשלום</td><td>${fmt(t.balance, cur.code)}</td></tr>`;
+      sectionsHtml += `
+        ${usedCurrencies.length > 1 ? `<div style="font-family:'Frank Ruhl Libre',serif;font-weight:700;font-size:14px;margin:18px 0 8px;color:#1a3d2b">${cur.label}</div>` : ''}
+        <div class="p-summary">
+          <div class="p-sbox"><div class="n" style="color:#c0392b">${fmt(t.debt, cur.code)}</div><div class="l">סה"כ חוב מקורי</div></div>
+          <div class="p-sbox"><div class="n" style="color:#2d6a4f">${fmt(t.paid, cur.code)}</div><div class="l">סה"כ שולם</div></div>
+          <div class="p-sbox"><div class="n" style="color:#16281f">${fmt(t.balance, cur.code)}</div><div class="l">יתרה לתשלום</div></div>
+        </div>
+        <table>
+          <thead><tr><th>תאריך</th><th>תיאור</th><th>סוג</th><th>סכום</th><th>יתרה</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="5" style="text-align:center;color:#999">אין רשומות</td></tr>'}${totalRow}</tbody>
+        </table>`;
+    });
+  }
 
   const el = document.getElementById('pdf-render');
   el.innerHTML = `
@@ -573,15 +676,7 @@ async function exportClientPdf(){
     </div>
     <div class="p-client">${escapeHtml(c.name)}</div>
     <div class="p-client-sub">${c.phone ? escapeHtml(c.phone) : ''}</div>
-    <div class="p-summary">
-      <div class="p-sbox"><div class="n" style="color:#c0392b">${fmt(t.debt)}</div><div class="l">סה"כ חוב מקורי</div></div>
-      <div class="p-sbox"><div class="n" style="color:#2d6a4f">${fmt(t.paid)}</div><div class="l">סה"כ שולם</div></div>
-      <div class="p-sbox"><div class="n" style="color:#16281f">${fmt(t.balance)}</div><div class="l">יתרה לתשלום</div></div>
-    </div>
-    <table>
-      <thead><tr><th>תאריך</th><th>תיאור</th><th>סוג</th><th>סכום</th><th>יתרה</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="5" style="text-align:center;color:#999">אין רשומות</td></tr>'}${totalRow}</tbody>
-    </table>
+    ${sectionsHtml}
     <div class="p-foot">מסמך זה הופק אוטומטית ממערכת מעקב חובות לקוחות · אתרוגי לוריא בע"מ</div>
   `;
 
