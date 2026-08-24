@@ -506,6 +506,9 @@ label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 5px
       <button class="close-btn" onclick="closeModal('view-order-modal')">✕</button>
     </div>
     <div id="view-order-content"></div>
+    <div class="modal-footer" style="margin-top:14px;display:flex;justify-content:flex-end;gap:8px">
+      <button class="btn btn-gold" onclick="printOrderById(currentViewOrderId)">🖨️ הדפס / PDF</button>
+    </div>
   </div>
 </div>
 
@@ -523,12 +526,13 @@ let state = {
   orders: [],
   purchases: [],
   quotes: [],
-  etrogTypes: ['מהודר א','מהודר ב','א','ב','ג'],
+  etrogTypes: ['מהודר א','מהודר ב','א','ב','ג','חינוך','חינוך+'],
   _loaded: false
 };
 
 let currentOrderItems = {};
 let purchaseItemCount = 0;
+let currentViewOrderId = null;
 
 // ============================================================
 // STORAGE
@@ -548,7 +552,7 @@ async function init() {
   state.orders = await load('orders', []);
   state.purchases = await load('purchases', []);
   state.quotes = await load('quotes', []);
-  state.etrogTypes = await load('etrogTypes', ['מהודר א','מהודר ב','א','ב','ג']);
+  state.etrogTypes = await load('etrogTypes', ['מהודר א','מהודר ב','א','ב','ג','חינוך','חינוך+']);
   state._loaded = true;
   renderAll();
 }
@@ -812,6 +816,7 @@ function renderOrdersList() {
       <td class="sell-color">₪${fmt(o.total)}</td>
       <td>
         <button class="btn btn-outline btn-xs" onclick="viewOrder('${o.id}')">👁️ צפה</button>
+        <button class="btn btn-gold btn-xs" onclick="printOrderById('${o.id}')">🖨️ PDF</button>
         <button class="btn btn-danger btn-xs" onclick="deleteOrder('${o.id}')">🗑️</button>
       </td>
     </tr>`;
@@ -849,6 +854,12 @@ function loadOrderPrices() {
       const p = prices[k]||0;
       html += buildOrderItemRow(k, t, p);
     });
+    html += `<div class="item-row" id="row-etrog_custom">
+      <input type="text" id="label-etrog_custom" placeholder="סוג חופשי..." style="background:transparent;border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:13px;width:100%">
+      <input type="number" min="0" class="qty-input" id="qty-etrog_custom" value="0" oninput="updateOrderTotal()">
+      <input type="number" min="0" step="0.1" class="price-input" id="price-etrog_custom" value="" placeholder="₪" oninput="updateOrderTotal()">
+      <div id="line-etrog_custom" style="font-weight:700;color:var(--light);text-align:left">-</div>
+    </div>`;
     html += '</div>';
   }
 
@@ -900,6 +911,7 @@ function buildOrderItemRow(key, label, price) {
 function updateOrderTotal() {
   let total = 0;
   const allKeys = [...state.etrogTypes.map(t=>'etrog_'+t),
+    'etrog_custom',
     ...HADASSIM_TYPES.map(t=>'hadass_'+t),
     'aravot',
     ...LULAVIM_TYPES.map(t=>'lulav_'+t),
@@ -924,7 +936,11 @@ async function saveOrder() {
   const items = [];
   let total = 0;
 
+  const customLabelEl = document.getElementById('label-etrog_custom');
+  const customLabel = customLabelEl && customLabelEl.value.trim() ? 'אתרוג – ' + customLabelEl.value.trim() : 'אתרוג – חופשי';
+
   const allKeys = [...state.etrogTypes.map(t=>({k:'etrog_'+t, label:'אתרוג – '+t, cat:'אתרוגים'})),
+    {k:'etrog_custom', label: customLabel, cat:'אתרוגים'},
     ...HADASSIM_TYPES.map(t=>({k:'hadass_'+t, label:'הדס – '+t, cat:'הדסים'})),
     {k:'aravot', label:'ערבות', cat:'ערבות'},
     ...LULAVIM_TYPES.map(t=>({k:'lulav_'+t, label:'לולב – '+t, cat:'לולבים'})),
@@ -970,6 +986,7 @@ async function deleteOrder(id) {
 }
 
 function viewOrder(id) {
+  currentViewOrderId = id;
   const o = state.orders.find(x=>x.id===id);
   if (!o) return;
   const cust = state.customers.find(c=>c.id===o.customerId);
@@ -1663,6 +1680,84 @@ function getQuotePrintHTML(q) {
       הצעת מחיר זו תקפה עד ${q.valid||'—'} | אתרוגי לוריא
     </div>
   </div>`;
+}
+
+function printOrderById(id) {
+  const o = state.orders.find(x => x.id === id);
+  if (!o) { showAlert('לא נמצאה הזמנה','error'); return; }
+  const cust = state.customers.find(c => c.id === o.customerId);
+  openOrderPrintWindow(o, cust);
+}
+
+function getOrderPrintHTML(o, cust) {
+  const rowsHtml = (o.items||[]).map((i, idx) => `
+    <tr style="border-bottom:1px solid #e0e0e0">
+      <td style="padding:10px 12px">${idx+1}</td>
+      <td style="padding:10px 12px">${i.label}</td>
+      <td style="padding:10px 12px;text-align:center">${i.qty}</td>
+      <td style="padding:10px 12px;text-align:left">₪${fmt(i.price)}</td>
+      <td style="padding:10px 12px;text-align:left;font-weight:600">₪${fmt(i.line)}</td>
+    </tr>`).join('');
+
+  return `
+  <div dir="rtl" style="font-family:'Heebo',Arial,sans-serif;max-width:750px;margin:0 auto;color:#1a2a1f;padding:40px 30px">
+    <div style="margin-bottom:20px;padding-bottom:16px;border-bottom:3px solid #2d6a4f;display:flex;justify-content:space-between;align-items:center">
+      <div style="font-family:'Frank Ruhl Libre',serif;font-size:22px;font-weight:800;color:#2d6a4f">🍋 אתרוגי לוריא</div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px">
+      <div></div>
+      <div style="text-align:left">
+        <div style="font-size:22px;font-weight:800;color:#2d6a4f">אישור הזמנה</div>
+        <div style="color:#555;font-size:13px">מספר: <strong>${o.num||'-'}</strong></div>
+        <div style="color:#555;font-size:13px">תאריך: ${o.date||''}</div>
+      </div>
+    </div>
+
+    <div style="background:#f5faf7;border-radius:8px;padding:16px 20px;margin-bottom:24px">
+      <div style="font-size:13px;color:#666;margin-bottom:4px">הזמנה עבור:</div>
+      <div style="font-size:18px;font-weight:700;color:#1a3d2b">${cust?cust.name:'-'}</div>
+      ${cust && cust.country ? `<div style="color:#555;font-size:13px;margin-top:2px">${cust.country}${cust.city?', '+cust.city:''}</div>` : ''}
+    </div>
+
+    ${o.notes ? `<div style="margin-bottom:20px;color:#444;font-size:14px;font-style:italic">${o.notes}</div>` : ''}
+
+    <table style="width:100%;border-collapse:collapse;margin-bottom:24px">
+      <thead>
+        <tr style="background:#2d6a4f;color:#fff">
+          <th style="padding:10px 12px;text-align:right;font-weight:600">#</th>
+          <th style="padding:10px 12px;text-align:right;font-weight:600">מוצר</th>
+          <th style="padding:10px 12px;text-align:center;font-weight:600">כמות</th>
+          <th style="padding:10px 12px;text-align:left;font-weight:600">מחיר ליחידה</th>
+          <th style="padding:10px 12px;text-align:left;font-weight:600">סה״כ</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+
+    <div style="display:flex;justify-content:flex-end">
+      <div style="min-width:280px">
+        <div style="display:flex;justify-content:space-between;padding:12px 0;font-size:18px;font-weight:800;color:#2d6a4f">
+          <span>סה״כ הזמנה:</span>
+          <span>₪${fmt(o.total||0)}</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:40px;padding-top:20px;border-top:2px solid #e0e0e0;color:#888;font-size:12px;text-align:center">
+      הופק על ידי מערכת ניהול יצוא – אתרוגי לוריא | ${today()}
+    </div>
+  </div>`;
+}
+
+function openOrderPrintWindow(o, cust) {
+  const content = getOrderPrintHTML(o, cust);
+  const win = window.open('', '_blank');
+  win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8">
+    <link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@700&family=Heebo:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+    <title>הזמנה - ${cust?cust.name:''}</title>
+    <style>@media print{body{margin:0}}</style>
+    </head><body>${content}<script>window.onload=function(){window.print()}<\/script></body></html>`);
+  win.document.close();
 }
 
 function printQuote() {
