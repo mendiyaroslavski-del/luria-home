@@ -1423,12 +1423,38 @@ function uid() { return Date.now().toString(36) + Math.random().toString(36).sli
 function today() { return new Date().toISOString().slice(0,10); }
 function fmt(n) { return (parseFloat(n)||0).toLocaleString('he-IL',{minimumFractionDigits:0,maximumFractionDigits:2}); }
 
+function hebrewNumeral(n) {
+  if (n === 15) return 'טו';
+  if (n === 16) return 'טז';
+  const values = [[400,'ת'],[300,'ש'],[200,'ר'],[100,'ק'],[90,'צ'],[80,'פ'],[70,'ע'],[60,'ס'],[50,'נ'],[40,'מ'],[30,'ל'],[20,'כ'],[10,'י'],[9,'ט'],[8,'ח'],[7,'ז'],[6,'ו'],[5,'ה'],[4,'ד'],[3,'ג'],[2,'ב'],[1,'א']];
+  let result = '', remaining = n;
+  for (const [val, letter] of values) {
+    while (remaining >= val) { result += letter; remaining -= val; }
+  }
+  return result;
+}
+
+function withGershayim(letters) {
+  if (letters.length <= 1) return letters + '׳';
+  return letters.slice(0,-1) + '״' + letters.slice(-1);
+}
+
 function toHebrewDateStr(isoDate) {
   if (!isoDate) return '';
   try {
     const d = new Date(isoDate + 'T00:00:00');
     if (isNaN(d.getTime())) return '';
-    return new Intl.DateTimeFormat('he-IL-u-ca-hebrew', {day:'numeric', month:'long', year:'numeric'}).format(d);
+    const parts = new Intl.DateTimeFormat('he-IL-u-ca-hebrew', {day:'numeric', month:'long', year:'numeric'}).formatToParts(d);
+    let day, month, year;
+    parts.forEach(p => {
+      if (p.type === 'day') day = parseInt(p.value);
+      if (p.type === 'month') month = p.value;
+      if (p.type === 'year') year = parseInt(p.value);
+    });
+    if (!day || !year) return '';
+    const dayHeb = withGershayim(hebrewNumeral(day));
+    const yearHeb = withGershayim(hebrewNumeral(year % 1000));
+    return `${dayHeb} ב${month} ${yearHeb}`;
   } catch(e) { return ''; }
 }
 
