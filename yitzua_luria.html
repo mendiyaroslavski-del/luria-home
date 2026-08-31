@@ -543,14 +543,10 @@ label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 5px
     </div>
 
     <div class="form-row cols3" style="margin-top:12px">
-      <div>
-        <label>סוג הטובין</label>
-        <input type="text" id="gr-product" list="gr-product-datalist" placeholder="הקלד או בחר מהרשימה...">
-        <datalist id="gr-product-datalist"></datalist>
-      </div>
-      <div><label>כמות</label><input type="number" min="0" id="gr-qty" value="1"></div>
-      <div><label>מחיר קניה (אם יש)</label><input type="number" min="0" step="0.1" id="gr-price" placeholder="₪"></div>
+      <div class="card-title" style="margin:0">🧾 פריטים בתעודה</div>
     </div>
+    <div id="gr-items-section"></div>
+    <div style="margin-top:8px"><button type="button" class="btn btn-outline btn-sm" onclick="addGrItem()">+ הוסף טובין נוסף לאותה תעודה</button></div>
     <div><label style="margin-top:10px">הערות</label><input type="text" id="gr-notes"></div>
 
     <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px">
@@ -1258,20 +1254,49 @@ async function deletePurchase(id) {
 // ============================================================
 // GOODS RECEIPT (קבלת סחורה)
 // ============================================================
+let grItemCount = 0;
+
 function populateGrSupplierDatalist() {
   const dl = document.getElementById('gr-supplier-datalist');
   dl.innerHTML = state.suppliers.map(s => `<option value="${s}"></option>`).join('');
 }
 
-function onGrSupplierChange() {
-  const supplier = document.getElementById('gr-supplier').value.trim();
-  const dl = document.getElementById('gr-product-datalist');
+function grProductOptionsHTML(supplier) {
   const products = [...new Set(
     state.goodsReceipts
       .filter(r => !supplier || r.supplier === supplier)
-      .map(r => r.product)
+      .flatMap(r => (r.items || []).map(i => i.product))
   )];
-  dl.innerHTML = products.map(p => `<option value="${p}"></option>`).join('');
+  return products.map(p => `<option value="${p}"></option>`).join('');
+}
+
+function onGrSupplierChange() {
+  const supplier = document.getElementById('gr-supplier').value.trim();
+  const html = grProductOptionsHTML(supplier);
+  document.querySelectorAll('[id^="gr-product-datalist-"]').forEach(dl => { dl.innerHTML = html; });
+}
+
+function addGrItem() {
+  grItemCount++;
+  const n = grItemCount;
+  const supplier = document.getElementById('gr-supplier') ? document.getElementById('gr-supplier').value.trim() : '';
+  const div = document.createElement('div');
+  div.id = 'gr-item-' + n;
+  div.style.cssText = 'display:grid;grid-template-columns:2fr 90px 110px auto;gap:8px;align-items:flex-end;margin-bottom:8px';
+  div.innerHTML = `
+    <div><label>סוג הטובין</label><input type="text" id="gr-product-${n}" list="gr-product-datalist-${n}" placeholder="הקלד או בחר מהרשימה...">
+      <datalist id="gr-product-datalist-${n}">${grProductOptionsHTML(supplier)}</datalist>
+    </div>
+    <div><label>כמות</label><input type="number" min="0" id="gr-qty-${n}" value="1"></div>
+    <div><label>מחיר קניה (אם יש)</label><input type="number" min="0" step="0.1" id="gr-price-${n}" placeholder="₪"></div>
+    <button type="button" class="btn btn-danger btn-sm" onclick="removeGrItem(${n})" style="align-self:flex-end">✕</button>
+  `;
+  document.getElementById('gr-items-section').appendChild(div);
+}
+
+function removeGrItem(n) {
+  const el = document.getElementById('gr-item-' + n);
+  if (el) el.remove();
 }
 
 function openGoodsReceiptModal() {
@@ -1279,23 +1304,27 @@ function openGoodsReceiptModal() {
   document.getElementById('gr-date').value = today();
   document.getElementById('gr-supplier').value = '';
   document.getElementById('gr-doc').value = '';
-  document.getElementById('gr-product').value = '';
-  document.getElementById('gr-qty').value = '1';
-  document.getElementById('gr-price').value = '';
   document.getElementById('gr-notes').value = '';
+  grItemCount = 0;
+  document.getElementById('gr-items-section').innerHTML = '';
   populateGrSupplierDatalist();
-  onGrSupplierChange();
+  addGrItem();
   openModal('goods-receipt-modal');
 }
 
 async function saveGoodsReceipt() {
   const supplier = document.getElementById('gr-supplier').value.trim();
   if (!supplier) { showAlert('הזן שם ספק','error'); return; }
-  const product = document.getElementById('gr-product').value.trim();
-  if (!product) { showAlert('הזן סוג טובין','error'); return; }
-  const qty = parseFloat(document.getElementById('gr-qty').value) || 0;
-  if (qty <= 0) { showAlert('הזן כמות תקינה','error'); return; }
-  const price = parseFloat(document.getElementById('gr-price').value) || 0;
+  const items = [];
+  for (let i = 1; i <= grItemCount; i++) {
+    const prodEl = document.getElementById('gr-product-' + i);
+    if (!prodEl) continue;
+    const product = prodEl.value.trim();
+    const qty = parseFloat(document.getElementById('gr-qty-' + i).value) || 0;
+    const price = parseFloat(document.getElementById('gr-price-' + i).value) || 0;
+    if (product && qty > 0) items.push({ product, qty, price });
+  }
+  if (items.length === 0) { showAlert('הוסף לפחות טובין אחד עם כמות תקינה','error'); return; }
   if (!state.suppliers.includes(supplier)) {
     state.suppliers.push(supplier);
     await save('suppliers', state.suppliers);
@@ -1304,11 +1333,9 @@ async function saveGoodsReceipt() {
     id: uid(),
     date: document.getElementById('gr-date').value || today(),
     supplier,
-    product,
-    qty,
-    price,
     doc: document.getElementById('gr-doc').value.trim(),
-    notes: document.getElementById('gr-notes').value.trim()
+    notes: document.getElementById('gr-notes').value.trim(),
+    items
   };
   state.goodsReceipts.push(receipt);
   await save('goodsReceipts', state.goodsReceipts);
@@ -1335,14 +1362,14 @@ function renderGoodsReceiptsList() {
     return;
   }
   const sorted = [...state.goodsReceipts].sort((a,b)=>b.date.localeCompare(a.date));
-  let html = '<table><thead><tr><th>תאריך</th><th>ספק</th><th>סוג טובין</th><th>כמות</th><th>מחיר קניה</th><th>תעודה</th><th>פעולות</th></tr></thead><tbody>';
+  let html = '<table><thead><tr><th>תאריך</th><th>ספק</th><th>פריטים</th><th>תעודה</th><th>פעולות</th></tr></thead><tbody>';
   sorted.forEach(r => {
+    const items = r.items || [];
+    const summary = items.map(i => `${i.product} (${i.qty})`).join(', ');
     html += `<tr>
       <td>${r.date}</td>
       <td><strong>${r.supplier}</strong></td>
-      <td>${r.product}</td>
-      <td>${r.qty}</td>
-      <td class="cost-color">${r.price ? '₪'+fmt(r.price) : '-'}</td>
+      <td style="font-size:13px">${summary || '-'}</td>
       <td>${r.doc||'-'}</td>
       <td>
         <button class="btn btn-gold btn-xs" onclick="printGoodsReceiptById('${r.id}')">🖨️ PDF</button>
@@ -1363,13 +1390,15 @@ function renderInventorySummary() {
   }
   const summary = {};
   state.goodsReceipts.forEach(r => {
-    if (!summary[r.product]) summary[r.product] = { qty: 0, lastPrice: 0, lastSupplier: '', lastDate: '' };
-    summary[r.product].qty += r.qty;
-    if (!summary[r.product].lastDate || r.date >= summary[r.product].lastDate) {
-      summary[r.product].lastPrice = r.price;
-      summary[r.product].lastSupplier = r.supplier;
-      summary[r.product].lastDate = r.date;
-    }
+    (r.items||[]).forEach(i => {
+      if (!summary[i.product]) summary[i.product] = { qty: 0, lastPrice: 0, lastSupplier: '', lastDate: '' };
+      summary[i.product].qty += i.qty;
+      if (!summary[i.product].lastDate || r.date >= summary[i.product].lastDate) {
+        summary[i.product].lastPrice = i.price;
+        summary[i.product].lastSupplier = r.supplier;
+        summary[i.product].lastDate = r.date;
+      }
+    });
   });
   let html = '<table><thead><tr><th>סוג טובין</th><th>סה"כ כמות שהתקבלה</th><th>ספק אחרון</th><th>מחיר קניה אחרון</th></tr></thead><tbody>';
   Object.keys(summary).sort().forEach(product => {
@@ -1399,6 +1428,18 @@ function printGoodsReceiptById(id) {
 }
 
 function getGoodsReceiptPrintHTML(r) {
+  const items = r.items || [];
+  const hasPrices = items.some(i => i.price > 0);
+  const totalCost = items.reduce((s,i) => s + (i.qty * (i.price||0)), 0);
+  const rowsHtml = items.map((i, idx) => `
+    <tr style="border-bottom:1px solid #e0e0e0">
+      <td style="padding:10px 12px">${idx+1}</td>
+      <td style="padding:10px 12px;font-weight:600">${i.product}</td>
+      <td style="padding:10px 12px;text-align:center">${i.qty}</td>
+      <td style="padding:10px 12px;text-align:left">${i.price ? '₪'+fmt(i.price) : '-'}</td>
+      <td style="padding:10px 12px;text-align:left;font-weight:600">${i.price ? '₪'+fmt(i.qty*i.price) : '-'}</td>
+    </tr>`).join('');
+
   return `
   <div dir="rtl" style="font-family:'Heebo',Arial,sans-serif;max-width:700px;margin:0 auto;color:#1a2a1f;padding:40px 30px">
     <div style="text-align:center;margin-bottom:20px;padding-bottom:16px;border-bottom:3px solid #2d6a4f">
@@ -1406,15 +1447,25 @@ function getGoodsReceiptPrintHTML(r) {
       <div style="font-size:16px;color:#555;margin-top:4px">אישור קבלת סחורה</div>
     </div>
 
-    <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
-      <tr><td style="padding:8px 0;color:#666;width:140px">ספק:</td><td style="padding:8px 0;font-weight:700;font-size:16px">${r.supplier}</td></tr>
-      <tr><td style="padding:8px 0;color:#666">תאריך:</td><td style="padding:8px 0">${r.date}</td></tr>
-      <tr><td style="padding:8px 0;color:#666">מספר תעודה:</td><td style="padding:8px 0">${r.doc||'-'}</td></tr>
-      <tr><td style="padding:8px 0;color:#666">סוג טובין:</td><td style="padding:8px 0;font-weight:700">${r.product}</td></tr>
-      <tr><td style="padding:8px 0;color:#666">כמות:</td><td style="padding:8px 0;font-weight:700">${r.qty}</td></tr>
-      <tr><td style="padding:8px 0;color:#666">מחיר קניה:</td><td style="padding:8px 0">${r.price ? '₪'+fmt(r.price) : '-'}</td></tr>
-      ${r.price ? `<tr><td style="padding:8px 0;color:#666">עלות כוללת:</td><td style="padding:8px 0;font-weight:700">₪${fmt(r.price*r.qty)}</td></tr>` : ''}
+    <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
+      <tr><td style="padding:6px 0;color:#666;width:140px">ספק:</td><td style="padding:6px 0;font-weight:700;font-size:16px">${r.supplier}</td></tr>
+      <tr><td style="padding:6px 0;color:#666">תאריך:</td><td style="padding:6px 0">${r.date}</td></tr>
+      <tr><td style="padding:6px 0;color:#666">מספר תעודה:</td><td style="padding:6px 0">${r.doc||'-'}</td></tr>
     </table>
+
+    <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
+      <thead>
+        <tr style="background:#2d6a4f;color:#fff">
+          <th style="padding:10px 12px;text-align:right;font-weight:600">#</th>
+          <th style="padding:10px 12px;text-align:right;font-weight:600">סוג טובין</th>
+          <th style="padding:10px 12px;text-align:center;font-weight:600">כמות</th>
+          <th style="padding:10px 12px;text-align:left;font-weight:600">מחיר קניה</th>
+          <th style="padding:10px 12px;text-align:left;font-weight:600">סה״כ</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+    ${hasPrices ? `<div style="display:flex;justify-content:flex-end;margin-bottom:20px"><div style="font-size:18px;font-weight:800;color:#2d6a4f">עלות כוללת: ₪${fmt(totalCost)}</div></div>` : ''}
     ${r.notes ? `<div style="margin-top:10px;padding:10px 14px;background:#f5faf7;border-radius:8px;color:#555;font-size:14px">הערות: ${r.notes}</div>` : ''}
 
     <div style="margin-top:40px;padding-top:20px;border-top:2px solid #e0e0e0;color:#888;font-size:12px;text-align:center">
