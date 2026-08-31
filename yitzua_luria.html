@@ -536,19 +536,11 @@ label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 5px
       <div><label>תאריך</label><input type="date" id="gr-date"></div>
       <div>
         <label>ספק</label>
-        <select id="gr-supplier" onchange="onGrSupplierChange()"></select>
+        <input type="text" id="gr-supplier" list="gr-supplier-datalist" placeholder="הקלד או בחר ספק..." oninput="onGrSupplierChange()">
+        <datalist id="gr-supplier-datalist"></datalist>
       </div>
       <div><label>מספר תעודה (אם יש)</label><input type="text" id="gr-doc"></div>
     </div>
-    <div id="gr-new-supplier-row" style="display:none;margin-top:6px">
-      <div class="form-row cols2">
-        <div><label>שם ספק חדש</label><input type="text" id="gr-new-supplier-name" placeholder="הקלד שם ספק..."></div>
-        <div style="display:flex;align-items:flex-end">
-          <button type="button" class="btn btn-outline btn-sm" onclick="confirmNewSupplier()">✓ הוסף ספק</button>
-        </div>
-      </div>
-    </div>
-    <div style="margin-top:6px"><button type="button" class="btn btn-outline btn-xs" onclick="showNewSupplierRow()">+ ספק חדש</button></div>
 
     <div class="form-row cols3" style="margin-top:12px">
       <div>
@@ -1266,32 +1258,13 @@ async function deletePurchase(id) {
 // ============================================================
 // GOODS RECEIPT (קבלת סחורה)
 // ============================================================
-function populateGrSupplierSelect() {
-  const sel = document.getElementById('gr-supplier');
-  sel.innerHTML = state.suppliers.map(s => `<option value="${s}">${s}</option>`).join('');
-}
-
-function showNewSupplierRow() {
-  document.getElementById('gr-new-supplier-row').style.display = 'block';
-  document.getElementById('gr-new-supplier-name').focus();
-}
-
-async function confirmNewSupplier() {
-  const name = document.getElementById('gr-new-supplier-name').value.trim();
-  if (!name) { showAlert('הקלד שם ספק','error'); return; }
-  if (!state.suppliers.includes(name)) {
-    state.suppliers.push(name);
-    await save('suppliers', state.suppliers);
-  }
-  populateGrSupplierSelect();
-  document.getElementById('gr-supplier').value = name;
-  document.getElementById('gr-new-supplier-name').value = '';
-  document.getElementById('gr-new-supplier-row').style.display = 'none';
-  onGrSupplierChange();
+function populateGrSupplierDatalist() {
+  const dl = document.getElementById('gr-supplier-datalist');
+  dl.innerHTML = state.suppliers.map(s => `<option value="${s}"></option>`).join('');
 }
 
 function onGrSupplierChange() {
-  const supplier = document.getElementById('gr-supplier').value;
+  const supplier = document.getElementById('gr-supplier').value.trim();
   const dl = document.getElementById('gr-product-datalist');
   const products = [...new Set(
     state.goodsReceipts
@@ -1304,26 +1277,29 @@ function onGrSupplierChange() {
 function openGoodsReceiptModal() {
   document.getElementById('edit-gr-id').value = '';
   document.getElementById('gr-date').value = today();
+  document.getElementById('gr-supplier').value = '';
   document.getElementById('gr-doc').value = '';
   document.getElementById('gr-product').value = '';
   document.getElementById('gr-qty').value = '1';
   document.getElementById('gr-price').value = '';
   document.getElementById('gr-notes').value = '';
-  document.getElementById('gr-new-supplier-row').style.display = 'none';
-  document.getElementById('gr-new-supplier-name').value = '';
-  populateGrSupplierSelect();
+  populateGrSupplierDatalist();
   onGrSupplierChange();
   openModal('goods-receipt-modal');
 }
 
 async function saveGoodsReceipt() {
-  const supplier = document.getElementById('gr-supplier').value;
-  if (!supplier) { showAlert('בחר ספק (או הוסף ספק חדש)','error'); return; }
+  const supplier = document.getElementById('gr-supplier').value.trim();
+  if (!supplier) { showAlert('הזן שם ספק','error'); return; }
   const product = document.getElementById('gr-product').value.trim();
   if (!product) { showAlert('הזן סוג טובין','error'); return; }
   const qty = parseFloat(document.getElementById('gr-qty').value) || 0;
   if (qty <= 0) { showAlert('הזן כמות תקינה','error'); return; }
   const price = parseFloat(document.getElementById('gr-price').value) || 0;
+  if (!state.suppliers.includes(supplier)) {
+    state.suppliers.push(supplier);
+    await save('suppliers', state.suppliers);
+  }
   const receipt = {
     id: uid(),
     date: document.getElementById('gr-date').value || today(),
