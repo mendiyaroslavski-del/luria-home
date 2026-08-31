@@ -1305,10 +1305,33 @@ function openGoodsReceiptModal() {
   document.getElementById('gr-supplier').value = '';
   document.getElementById('gr-doc').value = '';
   document.getElementById('gr-notes').value = '';
+  document.querySelector('#goods-receipt-modal .modal-title').textContent = '📥 קבלת סחורה חדשה';
   grItemCount = 0;
   document.getElementById('gr-items-section').innerHTML = '';
   populateGrSupplierDatalist();
   addGrItem();
+  openModal('goods-receipt-modal');
+}
+
+function editGoodsReceipt(id) {
+  const r = state.goodsReceipts.find(x => x.id === id);
+  if (!r) return;
+  document.getElementById('edit-gr-id').value = r.id;
+  document.getElementById('gr-date').value = r.date || today();
+  document.getElementById('gr-supplier').value = r.supplier || '';
+  document.getElementById('gr-doc').value = r.doc || '';
+  document.getElementById('gr-notes').value = r.notes || '';
+  document.querySelector('#goods-receipt-modal .modal-title').textContent = '✏️ עריכת קבלת סחורה';
+  grItemCount = 0;
+  document.getElementById('gr-items-section').innerHTML = '';
+  populateGrSupplierDatalist();
+  (r.items && r.items.length ? r.items : [{product:'',qty:1,price:''}]).forEach(i => {
+    addGrItem();
+    const n = grItemCount;
+    document.getElementById('gr-product-'+n).value = i.product || '';
+    document.getElementById('gr-qty-'+n).value = i.qty || 1;
+    document.getElementById('gr-price-'+n).value = i.price || '';
+  });
   openModal('goods-receipt-modal');
 }
 
@@ -1329,20 +1352,25 @@ async function saveGoodsReceipt() {
     state.suppliers.push(supplier);
     await save('suppliers', state.suppliers);
   }
-  const receipt = {
-    id: uid(),
+  const editId = document.getElementById('edit-gr-id').value;
+  const data = {
     date: document.getElementById('gr-date').value || today(),
     supplier,
     doc: document.getElementById('gr-doc').value.trim(),
     notes: document.getElementById('gr-notes').value.trim(),
     items
   };
-  state.goodsReceipts.push(receipt);
+  if (editId) {
+    const idx = state.goodsReceipts.findIndex(r => r.id === editId);
+    if (idx !== -1) state.goodsReceipts[idx] = { id: editId, ...data };
+  } else {
+    state.goodsReceipts.push({ id: uid(), ...data });
+  }
   await save('goodsReceipts', state.goodsReceipts);
   closeModal('goods-receipt-modal');
   renderGoodsReceiptsList();
   renderInventorySummary();
-  showAlert('קבלת הסחורה נשמרה ✓');
+  showAlert(editId ? 'הקבלה עודכנה ✓' : 'קבלת הסחורה נשמרה ✓');
 }
 
 async function deleteGoodsReceipt(id) {
@@ -1362,17 +1390,19 @@ function renderGoodsReceiptsList() {
     return;
   }
   const sorted = [...state.goodsReceipts].sort((a,b)=>b.date.localeCompare(a.date));
-  let html = '<table><thead><tr><th>תאריך</th><th>ספק</th><th>פריטים</th><th>תעודה</th><th>פעולות</th></tr></thead><tbody>';
+  let html = '<table><thead><tr><th>תאריך</th><th>ספק</th><th>תעודה</th><th>פריטים</th><th>פעולות</th></tr></thead><tbody>';
   sorted.forEach(r => {
     const items = r.items || [];
-    const summary = items.map(i => `${i.product} (${i.qty})`).join(', ');
+    const shown = items.slice(0,2).map(i => `${i.product} (${i.qty})`).join(', ');
+    const extra = items.length > 2 ? ` +${items.length-2} נוספים` : '';
     html += `<tr>
-      <td>${r.date}</td>
+      <td style="white-space:nowrap">${r.date}</td>
       <td><strong>${r.supplier}</strong></td>
-      <td style="font-size:13px">${summary || '-'}</td>
       <td>${r.doc||'-'}</td>
-      <td>
-        <button class="btn btn-gold btn-xs" onclick="printGoodsReceiptById('${r.id}')">🖨️ PDF</button>
+      <td style="font-size:12px;max-width:220px">${(shown||'-') + extra}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-outline btn-xs" onclick="editGoodsReceipt('${r.id}')">✏️</button>
+        <button class="btn btn-gold btn-xs" onclick="printGoodsReceiptById('${r.id}')">🖨️</button>
         <button class="btn btn-danger btn-xs" onclick="deleteGoodsReceipt('${r.id}')">🗑️</button>
       </td>
     </tr>`;
