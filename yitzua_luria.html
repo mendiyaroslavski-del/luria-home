@@ -314,6 +314,7 @@ label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 5px
     <button class="nav-btn" onclick="showTab('customers')">👥 לקוחות</button>
     <button class="nav-btn" onclick="showTab('orders')">📋 הזמנות</button>
     <button class="nav-btn" onclick="showTab('purchases')">🛒 רכישות</button>
+    <button class="nav-btn" onclick="showTab('goods-receipt')">📥 קבלת סחורה</button>
     <button class="nav-btn" onclick="showTab('etrog-types')">🍋 סוגי אתרוג</button>
     <button class="nav-btn" onclick="showTab('export')">📤 יצוא</button>
     <button class="nav-btn" onclick="showTab('quotes')">📄 הצעות מחיר</button>
@@ -357,6 +358,19 @@ label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 5px
       <button class="btn btn-primary" onclick="openPurchaseModal()">+ רכישה חדשה</button>
     </div>
     <div class="card" id="purchases-list"></div>
+  </div>
+
+  <!-- GOODS RECEIPT -->
+  <div id="tab-goods-receipt" class="section">
+    <div class="actions-bar">
+      <div class="card-title" style="margin:0">📥 רישום קבלת סחורה</div>
+      <button class="btn btn-primary" onclick="openGoodsReceiptModal()">+ קבלה חדשה</button>
+    </div>
+    <div class="card" id="goods-receipt-list"></div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">📦 מלאי מצטבר (סה"כ שהתקבל)</div>
+      <div id="inventory-summary"></div>
+    </div>
   </div>
 
   <!-- ETROG TYPES -->
@@ -510,6 +524,50 @@ label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 5px
   </div>
 </div>
 
+<!-- GOODS RECEIPT MODAL -->
+<div class="overlay" id="goods-receipt-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">📥 קבלת סחורה חדשה</div>
+      <button class="close-btn" onclick="closeModal('goods-receipt-modal')">✕</button>
+    </div>
+    <input type="hidden" id="edit-gr-id">
+    <div class="form-row cols3">
+      <div><label>תאריך</label><input type="date" id="gr-date"></div>
+      <div>
+        <label>ספק</label>
+        <select id="gr-supplier" onchange="onGrSupplierChange()"></select>
+      </div>
+      <div><label>מספר תעודה (אם יש)</label><input type="text" id="gr-doc"></div>
+    </div>
+    <div id="gr-new-supplier-row" style="display:none;margin-top:6px">
+      <div class="form-row cols2">
+        <div><label>שם ספק חדש</label><input type="text" id="gr-new-supplier-name" placeholder="הקלד שם ספק..."></div>
+        <div style="display:flex;align-items:flex-end">
+          <button type="button" class="btn btn-outline btn-sm" onclick="confirmNewSupplier()">✓ הוסף ספק</button>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:6px"><button type="button" class="btn btn-outline btn-xs" onclick="showNewSupplierRow()">+ ספק חדש</button></div>
+
+    <div class="form-row cols3" style="margin-top:12px">
+      <div>
+        <label>סוג הטובין</label>
+        <input type="text" id="gr-product" list="gr-product-datalist" placeholder="הקלד או בחר מהרשימה...">
+        <datalist id="gr-product-datalist"></datalist>
+      </div>
+      <div><label>כמות</label><input type="number" min="0" id="gr-qty" value="1"></div>
+      <div><label>מחיר קניה (אם יש)</label><input type="number" min="0" step="0.1" id="gr-price" placeholder="₪"></div>
+    </div>
+    <div><label style="margin-top:10px">הערות</label><input type="text" id="gr-notes"></div>
+
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px">
+      <button class="btn btn-outline" onclick="closeModal('goods-receipt-modal')">ביטול</button>
+      <button class="btn btn-primary" onclick="saveGoodsReceipt()">💾 שמור קבלה</button>
+    </div>
+  </div>
+</div>
+
 <!-- VIEW ORDER MODAL -->
 <div class="overlay" id="view-order-modal">
   <div class="modal" style="max-width:900px">
@@ -540,6 +598,8 @@ let state = {
   purchases: [],
   quotes: [],
   etrogTypes: ['מהודר א','מהודר ב','א','ב','ג','חינוך+','חינוך'],
+  suppliers: [],
+  goodsReceipts: [],
   _loaded: false
 };
 
@@ -570,6 +630,8 @@ async function init() {
   state.purchases = await load('purchases', []);
   state.quotes = await load('quotes', []);
   state.etrogTypes = await load('etrogTypes', ['מהודר א','מהודר ב','א','ב','ג','חינוך+','חינוך']);
+  state.suppliers = await load('suppliers', []);
+  state.goodsReceipts = await load('goodsReceipts', []);
   state._loaded = true;
   renderAll();
 }
@@ -584,6 +646,8 @@ function renderAll() {
   renderPurchasesList();
   renderEtrogTypes();
   renderQuotesList();
+  renderGoodsReceiptsList();
+  renderInventorySummary();
   updatePDFSelect();
 }
 
@@ -593,6 +657,7 @@ function showTab(tab) {
   document.getElementById('tab-' + tab).classList.add('show');
   event.currentTarget.classList.add('active');
   if (tab === 'export') { renderAll(); }
+  if (tab === 'goods-receipt') { renderGoodsReceiptsList(); renderInventorySummary(); }
 }
 
 function showInnerTab(id) {
@@ -1196,6 +1261,190 @@ async function deletePurchase(id) {
   renderPurchasesList();
   renderDashboard();
   showAlert('הרכישה נמחקה');
+}
+
+// ============================================================
+// GOODS RECEIPT (קבלת סחורה)
+// ============================================================
+function populateGrSupplierSelect() {
+  const sel = document.getElementById('gr-supplier');
+  sel.innerHTML = state.suppliers.map(s => `<option value="${s}">${s}</option>`).join('');
+}
+
+function showNewSupplierRow() {
+  document.getElementById('gr-new-supplier-row').style.display = 'block';
+  document.getElementById('gr-new-supplier-name').focus();
+}
+
+async function confirmNewSupplier() {
+  const name = document.getElementById('gr-new-supplier-name').value.trim();
+  if (!name) { showAlert('הקלד שם ספק','error'); return; }
+  if (!state.suppliers.includes(name)) {
+    state.suppliers.push(name);
+    await save('suppliers', state.suppliers);
+  }
+  populateGrSupplierSelect();
+  document.getElementById('gr-supplier').value = name;
+  document.getElementById('gr-new-supplier-name').value = '';
+  document.getElementById('gr-new-supplier-row').style.display = 'none';
+  onGrSupplierChange();
+}
+
+function onGrSupplierChange() {
+  const supplier = document.getElementById('gr-supplier').value;
+  const dl = document.getElementById('gr-product-datalist');
+  const products = [...new Set(
+    state.goodsReceipts
+      .filter(r => !supplier || r.supplier === supplier)
+      .map(r => r.product)
+  )];
+  dl.innerHTML = products.map(p => `<option value="${p}"></option>`).join('');
+}
+
+function openGoodsReceiptModal() {
+  document.getElementById('edit-gr-id').value = '';
+  document.getElementById('gr-date').value = today();
+  document.getElementById('gr-doc').value = '';
+  document.getElementById('gr-product').value = '';
+  document.getElementById('gr-qty').value = '1';
+  document.getElementById('gr-price').value = '';
+  document.getElementById('gr-notes').value = '';
+  document.getElementById('gr-new-supplier-row').style.display = 'none';
+  document.getElementById('gr-new-supplier-name').value = '';
+  populateGrSupplierSelect();
+  onGrSupplierChange();
+  openModal('goods-receipt-modal');
+}
+
+async function saveGoodsReceipt() {
+  const supplier = document.getElementById('gr-supplier').value;
+  if (!supplier) { showAlert('בחר ספק (או הוסף ספק חדש)','error'); return; }
+  const product = document.getElementById('gr-product').value.trim();
+  if (!product) { showAlert('הזן סוג טובין','error'); return; }
+  const qty = parseFloat(document.getElementById('gr-qty').value) || 0;
+  if (qty <= 0) { showAlert('הזן כמות תקינה','error'); return; }
+  const price = parseFloat(document.getElementById('gr-price').value) || 0;
+  const receipt = {
+    id: uid(),
+    date: document.getElementById('gr-date').value || today(),
+    supplier,
+    product,
+    qty,
+    price,
+    doc: document.getElementById('gr-doc').value.trim(),
+    notes: document.getElementById('gr-notes').value.trim()
+  };
+  state.goodsReceipts.push(receipt);
+  await save('goodsReceipts', state.goodsReceipts);
+  closeModal('goods-receipt-modal');
+  renderGoodsReceiptsList();
+  renderInventorySummary();
+  showAlert('קבלת הסחורה נשמרה ✓');
+}
+
+async function deleteGoodsReceipt(id) {
+  if (!confirm('למחוק רשומת קבלת סחורה זו?')) return;
+  state.goodsReceipts = state.goodsReceipts.filter(r => r.id !== id);
+  await save('goodsReceipts', state.goodsReceipts);
+  renderGoodsReceiptsList();
+  renderInventorySummary();
+  showAlert('הרשומה נמחקה');
+}
+
+function renderGoodsReceiptsList() {
+  const el = document.getElementById('goods-receipt-list');
+  if (!el) return;
+  if (state.goodsReceipts.length === 0) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">📥</div>אין רשומות קבלת סחורה עדיין</div>';
+    return;
+  }
+  const sorted = [...state.goodsReceipts].sort((a,b)=>b.date.localeCompare(a.date));
+  let html = '<table><thead><tr><th>תאריך</th><th>ספק</th><th>סוג טובין</th><th>כמות</th><th>מחיר קניה</th><th>תעודה</th><th>פעולות</th></tr></thead><tbody>';
+  sorted.forEach(r => {
+    html += `<tr>
+      <td>${r.date}</td>
+      <td><strong>${r.supplier}</strong></td>
+      <td>${r.product}</td>
+      <td>${r.qty}</td>
+      <td class="cost-color">${r.price ? '₪'+fmt(r.price) : '-'}</td>
+      <td>${r.doc||'-'}</td>
+      <td>
+        <button class="btn btn-gold btn-xs" onclick="printGoodsReceiptById('${r.id}')">🖨️ PDF</button>
+        <button class="btn btn-danger btn-xs" onclick="deleteGoodsReceipt('${r.id}')">🗑️</button>
+      </td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function renderInventorySummary() {
+  const el = document.getElementById('inventory-summary');
+  if (!el) return;
+  if (state.goodsReceipts.length === 0) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">📦</div>אין נתוני מלאי עדיין</div>';
+    return;
+  }
+  const summary = {};
+  state.goodsReceipts.forEach(r => {
+    if (!summary[r.product]) summary[r.product] = { qty: 0, lastPrice: 0, lastSupplier: '', lastDate: '' };
+    summary[r.product].qty += r.qty;
+    if (!summary[r.product].lastDate || r.date >= summary[r.product].lastDate) {
+      summary[r.product].lastPrice = r.price;
+      summary[r.product].lastSupplier = r.supplier;
+      summary[r.product].lastDate = r.date;
+    }
+  });
+  let html = '<table><thead><tr><th>סוג טובין</th><th>סה"כ כמות שהתקבלה</th><th>ספק אחרון</th><th>מחיר קניה אחרון</th></tr></thead><tbody>';
+  Object.keys(summary).sort().forEach(product => {
+    const s = summary[product];
+    html += `<tr>
+      <td><strong>${product}</strong></td>
+      <td>${fmt(s.qty)}</td>
+      <td>${s.lastSupplier||'-'}</td>
+      <td class="cost-color">${s.lastPrice ? '₪'+fmt(s.lastPrice) : '-'}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function printGoodsReceiptById(id) {
+  const r = state.goodsReceipts.find(x => x.id === id);
+  if (!r) { showAlert('לא נמצאה רשומה','error'); return; }
+  const content = getGoodsReceiptPrintHTML(r);
+  const win = window.open('', '_blank');
+  win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8">
+    <link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@700&family=Heebo:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+    <title>קבלת סחורה - ${r.supplier}</title>
+    <style>@media print{body{margin:0}}</style>
+    </head><body>${content}<script>window.onload=function(){window.print()}<\/script></body></html>`);
+  win.document.close();
+}
+
+function getGoodsReceiptPrintHTML(r) {
+  return `
+  <div dir="rtl" style="font-family:'Heebo',Arial,sans-serif;max-width:700px;margin:0 auto;color:#1a2a1f;padding:40px 30px">
+    <div style="text-align:center;margin-bottom:20px;padding-bottom:16px;border-bottom:3px solid #2d6a4f">
+      <div style="font-family:'Frank Ruhl Libre',serif;font-size:22px;font-weight:800;color:#2d6a4f">🍋 אתרוגי לוריא</div>
+      <div style="font-size:16px;color:#555;margin-top:4px">אישור קבלת סחורה</div>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
+      <tr><td style="padding:8px 0;color:#666;width:140px">ספק:</td><td style="padding:8px 0;font-weight:700;font-size:16px">${r.supplier}</td></tr>
+      <tr><td style="padding:8px 0;color:#666">תאריך:</td><td style="padding:8px 0">${r.date}</td></tr>
+      <tr><td style="padding:8px 0;color:#666">מספר תעודה:</td><td style="padding:8px 0">${r.doc||'-'}</td></tr>
+      <tr><td style="padding:8px 0;color:#666">סוג טובין:</td><td style="padding:8px 0;font-weight:700">${r.product}</td></tr>
+      <tr><td style="padding:8px 0;color:#666">כמות:</td><td style="padding:8px 0;font-weight:700">${r.qty}</td></tr>
+      <tr><td style="padding:8px 0;color:#666">מחיר קניה:</td><td style="padding:8px 0">${r.price ? '₪'+fmt(r.price) : '-'}</td></tr>
+      ${r.price ? `<tr><td style="padding:8px 0;color:#666">עלות כוללת:</td><td style="padding:8px 0;font-weight:700">₪${fmt(r.price*r.qty)}</td></tr>` : ''}
+    </table>
+    ${r.notes ? `<div style="margin-top:10px;padding:10px 14px;background:#f5faf7;border-radius:8px;color:#555;font-size:14px">הערות: ${r.notes}</div>` : ''}
+
+    <div style="margin-top:40px;padding-top:20px;border-top:2px solid #e0e0e0;color:#888;font-size:12px;text-align:center">
+      הופק על ידי מערכת ניהול יצוא – אתרוגי לוריא | ${today()}
+    </div>
+  </div>`;
 }
 
 // ============================================================
