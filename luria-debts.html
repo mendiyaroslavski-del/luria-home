@@ -197,6 +197,53 @@ body::before {
 
 .section-title { font-size: 12px; letter-spacing: 1px; color: rgba(255,255,255,0.4); text-transform: uppercase; margin: 18px 0 8px; }
 
+/* Product mode */
+.mode-toggle-row { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.product-line {
+  display: grid;
+  grid-template-columns: 1fr 52px 78px 70px 28px;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.product-line select, .product-line input {
+  width: 100%;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  padding: 8px 6px;
+  color: var(--white);
+  font-family: 'Heebo', sans-serif;
+  font-size: 12px;
+}
+.pl-name-custom { grid-column: 1 / -1; margin-top: -4px; }
+.pl-subtotal { font-family: 'Frank Ruhl Libre', serif; font-size: 12px; font-weight: 700; color: var(--gold-light); text-align: center; }
+.pl-del { background: none; border: none; color: rgba(255,255,255,0.35); cursor: pointer; font-size: 15px; }
+.product-total-row {
+  display: flex; justify-content: space-between; align-items: center;
+  background: rgba(255,255,255,0.03); border-radius: 10px; padding: 10px 12px; margin: 6px 0 16px;
+  font-size: 13px; color: rgba(255,255,255,0.6);
+}
+.product-total-row .n { font-family: 'Frank Ruhl Libre', serif; font-weight: 700; color: var(--gold-light); font-size: 15px; }
+
+/* Product catalog list */
+.catalog-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 4px; border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.catalog-row input { width: 90px; text-align: center; }
+
+.input-inline {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  padding: 11px 12px;
+  color: var(--white);
+  font-family: 'Heebo', sans-serif;
+  font-size: 14px;
+}
+.input-inline::placeholder { color: rgba(255,255,255,0.35); }
+
 .fab {
   position: fixed; bottom: 22px; left: 22px; z-index: 40;
   width: 56px; height: 56px; border-radius: 50%;
@@ -254,10 +301,27 @@ body::before {
 
   <div class="controls">
     <input type="text" class="search-input" id="search" placeholder="חיפוש לקוח...">
+    <button class="btn btn-outline" onclick="openCatalog()">📦 מוצרים</button>
     <button class="btn btn-gold" onclick="openNewClient()">+ לקוח</button>
   </div>
 
   <div id="client-list"></div>
+</div>
+
+<!-- Product catalog modal -->
+<div class="overlay" id="overlay-catalog">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">מוצרים שמורים</div>
+      <button class="modal-close" onclick="closeModal('overlay-catalog')">✕</button>
+    </div>
+    <div style="display:flex; gap:10px; margin-bottom:14px;">
+      <input id="cat-name" class="input-inline" placeholder="שם מוצר (לדוגמה: לולב מהודר)" style="flex:1">
+      <input id="cat-price" class="input-inline" type="number" placeholder="מחיר" style="width:90px">
+      <button class="btn btn-gold btn-sm" onclick="addCatalogProduct()">+ הוסף</button>
+    </div>
+    <div id="catalog-list"></div>
+  </div>
 </div>
 
 <!-- New client modal -->
@@ -300,19 +364,35 @@ body::before {
 
     <div id="tab-debt">
       <div class="field"><label>תאריך</label><input type="date" id="nd-date"></div>
-      <div style="display:flex; gap:10px;">
-        <div class="field" style="flex:1"><label>סכום</label><input type="number" inputmode="decimal" id="nd-amount" placeholder="0"></div>
+      <div style="display:flex; gap:10px; align-items:flex-end;">
         <div class="field" style="width:110px">
           <label>מטבע</label>
-          <select id="nd-currency">
+          <select id="nd-currency" onchange="recalcAllProductLines()">
             <option value="ILS">₪ שקל</option>
             <option value="USD">$ דולר</option>
             <option value="EUR">€ יורו</option>
           </select>
         </div>
+        <div style="flex:1; text-align:left; padding-bottom:12px;">
+          <button type="button" class="btn btn-outline btn-sm" id="debt-mode-btn" onclick="toggleDebtMode()">🧮 מילוי לפי מוצר</button>
+        </div>
       </div>
-      <div class="field"><label>תיאור</label><input id="nd-desc" placeholder="לדוגמה: 4 מינים"></div>
-      <button class="btn btn-gold btn-full" onclick="addDebt()">הוספת שורת חוב</button>
+
+      <div id="debt-simple-fields">
+        <div class="field"><label>סכום</label><input type="number" inputmode="decimal" id="nd-amount" placeholder="0"></div>
+        <div class="field"><label>תיאור</label><input id="nd-desc" placeholder="לדוגמה: 4 מינים"></div>
+      </div>
+
+      <div id="debt-product-fields" style="display:none">
+        <div id="product-lines"></div>
+        <button type="button" class="btn btn-outline btn-full btn-sm" onclick="addProductLine()" style="margin-bottom:10px">+ הוספת מוצר לשורה</button>
+        <div class="product-total-row">
+          <span>סה"כ לשורות אלו</span>
+          <span class="n" id="product-total-display">₪0</span>
+        </div>
+      </div>
+
+      <button class="btn btn-gold btn-full" onclick="submitDebtForm()">הוספת שורת חוב</button>
     </div>
 
     <div id="tab-payment" style="display:none">
@@ -348,8 +428,20 @@ let state = load();
 let currentClientId = null;
 
 function load(){
-  try { return JSON.parse(localStorage.getItem(K)) || { clients: [], entries: [] }; }
-  catch(e){ return { clients: [], entries: [] }; }
+  let s;
+  try { s = JSON.parse(localStorage.getItem(K)) || { clients: [], entries: [] }; }
+  catch(e){ s = { clients: [], entries: [] }; }
+  if(!s.products) s.products = [];
+  if(!s.clientPrices) s.clientPrices = {}; // { clientId: { productId: lastAgreedPrice } }
+  return s;
+}
+function getClientPrice(clientId, productId){
+  return (state.clientPrices[clientId] && state.clientPrices[clientId][productId] !== undefined)
+    ? state.clientPrices[clientId][productId] : null;
+}
+function setClientPrice(clientId, productId, price){
+  if(!state.clientPrices[clientId]) state.clientPrices[clientId] = {};
+  state.clientPrices[clientId][productId] = price;
 }
 function save(){ localStorage.setItem(K, JSON.stringify(state)); }
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
@@ -509,6 +601,12 @@ function openDetail(id){
   document.getElementById('np-amount').value = '';
   document.getElementById('np-desc').value = '';
   document.getElementById('np-currency').value = 'ILS';
+  isProductMode = false;
+  document.getElementById('debt-simple-fields').style.display = 'block';
+  document.getElementById('debt-product-fields').style.display = 'none';
+  document.getElementById('debt-mode-btn').textContent = '🧮 מילוי לפי מוצר';
+  document.getElementById('product-lines').innerHTML = '';
+  addProductLine();
   switchTab('debt');
   renderDetail();
   openModal('overlay-detail');
@@ -568,6 +666,147 @@ function switchTab(tab){
   document.getElementById('tab-payment-btn').classList.toggle('active', tab==='payment');
 }
 
+let isProductMode = false;
+
+function toggleDebtMode(){
+  isProductMode = !isProductMode;
+  document.getElementById('debt-simple-fields').style.display = isProductMode ? 'none' : 'block';
+  document.getElementById('debt-product-fields').style.display = isProductMode ? 'block' : 'none';
+  document.getElementById('debt-mode-btn').textContent = isProductMode ? '✏️ מילוי חופשי' : '🧮 מילוי לפי מוצר';
+  if(isProductMode && document.getElementById('product-lines').children.length === 0){
+    addProductLine();
+  }
+}
+
+function productOptionsHtml(selectedId){
+  let opts = state.products.map(p => `<option value="${p.id}" ${p.id===selectedId?'selected':''}>${escapeHtml(p.name)}</option>`).join('');
+  opts += `<option value="__custom__" ${selectedId==='__custom__'?'selected':''}>+ מוצר חדש...</option>`;
+  return opts;
+}
+
+function addProductLine(){
+  const rowId = uid();
+  const wrap = document.getElementById('product-lines');
+  const row = document.createElement('div');
+  row.className = 'product-line';
+  row.dataset.rowId = rowId;
+  row.innerHTML = `
+    <select class="pl-product" onchange="onProductSelect('${rowId}')">${productOptionsHtml(state.products[0] ? undefined : '__custom__')}</select>
+    <input class="pl-qty" type="number" value="1" min="0" oninput="recalcProductLine('${rowId}')" placeholder="כמות">
+    <input class="pl-price" type="number" value="0" min="0" oninput="recalcProductLine('${rowId}')" placeholder="מחיר ליח'">
+    <div class="pl-subtotal" id="sub-${rowId}">₪0</div>
+    <button type="button" class="pl-del" onclick="removeProductLine('${rowId}')">✕</button>
+    <div class="pl-hint" id="hint-${rowId}" style="grid-column:1/-1; font-size:10px; color:rgba(255,255,255,0.35); margin-top:-4px;"></div>
+    <input class="pl-name-custom" placeholder="שם המוצר החדש" style="display:${state.products.length?'none':'block'}" oninput="recalcProductTotal()">
+  `;
+  wrap.appendChild(row);
+  onProductSelect(rowId, true);
+  recalcProductLine(rowId);
+}
+
+function onProductSelect(rowId, skipRecalc){
+  const row = document.querySelector(`.product-line[data-row-id="${rowId}"]`);
+  if(!row) return;
+  const sel = row.querySelector('.pl-product');
+  const priceInput = row.querySelector('.pl-price');
+  const customInput = row.querySelector('.pl-name-custom');
+  const hint = row.querySelector('.pl-hint');
+  if(sel.value === '__custom__'){
+    customInput.style.display = 'block';
+    hint.textContent = '';
+  } else {
+    customInput.style.display = 'none';
+    const p = state.products.find(x => x.id === sel.value);
+    const clientPrice = getClientPrice(currentClientId, sel.value);
+    if(clientPrice !== null){
+      priceInput.value = clientPrice;
+      hint.textContent = '💬 המחיר האחרון שסוכם עם הלקוח הזה';
+    } else if(p){
+      priceInput.value = p.price;
+      hint.textContent = '📦 מחיר ברירת מחדל (עדיין לא נמכר ללקוח זה)';
+    } else {
+      hint.textContent = '';
+    }
+  }
+  if(!skipRecalc) recalcProductLine(rowId);
+}
+
+function removeProductLine(rowId){
+  const row = document.querySelector(`.product-line[data-row-id="${rowId}"]`);
+  if(row) row.remove();
+  recalcProductTotal();
+}
+
+function recalcProductLine(rowId){
+  const row = document.querySelector(`.product-line[data-row-id="${rowId}"]`);
+  if(!row) return;
+  const qty = parseFloat(row.querySelector('.pl-qty').value) || 0;
+  const price = parseFloat(row.querySelector('.pl-price').value) || 0;
+  const currency = document.getElementById('nd-currency').value;
+  document.getElementById('sub-' + rowId).textContent = fmt(qty * price, currency);
+  recalcProductTotal();
+}
+
+function recalcProductTotal(){
+  const currency = document.getElementById('nd-currency').value;
+  let total = 0;
+  document.querySelectorAll('.product-line').forEach(row => {
+    const qty = parseFloat(row.querySelector('.pl-qty').value) || 0;
+    const price = parseFloat(row.querySelector('.pl-price').value) || 0;
+    total += qty * price;
+  });
+  document.getElementById('product-total-display').textContent = fmt(total, currency);
+}
+
+function recalcAllProductLines(){
+  document.querySelectorAll('.product-line').forEach(row => recalcProductLine(row.dataset.rowId));
+}
+
+function submitDebtForm(){
+  if(isProductMode) addDebtFromProducts();
+  else addDebt();
+}
+
+function addDebtFromProducts(){
+  const date = document.getElementById('nd-date').value || today();
+  const currency = document.getElementById('nd-currency').value;
+  const rows = Array.from(document.querySelectorAll('.product-line'));
+  let addedAny = false;
+
+  rows.forEach(row => {
+    const sel = row.querySelector('.pl-product');
+    const qty = parseFloat(row.querySelector('.pl-qty').value) || 0;
+    const price = parseFloat(row.querySelector('.pl-price').value) || 0;
+    let name, productId;
+    if(sel.value === '__custom__'){
+      name = row.querySelector('.pl-name-custom').value.trim();
+      const existing = state.products.find(p => p.name === name);
+      if(existing){
+        productId = existing.id;
+      } else if(name){
+        productId = uid();
+        state.products.push({ id: productId, name, price });
+      }
+    } else {
+      const p = state.products.find(x => x.id === sel.value);
+      name = p ? p.name : '';
+      productId = sel.value;
+    }
+    if(!name || qty <= 0) return;
+    addedAny = true;
+    const description = `${qty} יח' ${name}`;
+    state.entries.push({ id: uid(), clientId: currentClientId, type: 'debt', amount: qty * price, date, description, currency });
+    // Remember this as the price agreed with THIS client for THIS product — prices are dynamic per client.
+    if(productId) setClientPrice(currentClientId, productId, price);
+  });
+
+  if(!addedAny){ alert('נא להזין לפחות מוצר אחד עם כמות תקינה'); return; }
+  save();
+  document.getElementById('product-lines').innerHTML = '';
+  addProductLine();
+  renderDetail(); renderAll();
+}
+
 function addDebt(){
   const amount = parseFloat(document.getElementById('nd-amount').value);
   if(!amount || amount <= 0){ alert('נא להזין סכום תקין'); return; }
@@ -579,6 +818,54 @@ function addDebt(){
   document.getElementById('nd-amount').value = '';
   document.getElementById('nd-desc').value = '';
   renderDetail(); renderAll();
+}
+
+/* Product catalog management */
+function openCatalog(){
+  document.getElementById('cat-name').value = '';
+  document.getElementById('cat-price').value = '';
+  renderCatalog();
+  openModal('overlay-catalog');
+}
+
+function renderCatalog(){
+  const list = document.getElementById('catalog-list');
+  if(state.products.length === 0){
+    list.innerHTML = `<div class="empty-state" style="padding:20px 0">אין עדיין מוצרים שמורים. הוסף מוצר למעלה, או שהוא יתווסף אוטומטית כשתשתמש ב"מילוי לפי מוצר".</div>`;
+    return;
+  }
+  list.innerHTML = state.products.map(p => `
+    <div class="catalog-row">
+      <span>${escapeHtml(p.name)}</span>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <input class="input-inline" type="number" value="${p.price}" onchange="updateCatalogPrice('${p.id}', this.value)">
+        <button class="pl-del" onclick="deleteCatalogProduct('${p.id}')">✕</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function addCatalogProduct(){
+  const name = document.getElementById('cat-name').value.trim();
+  const price = parseFloat(document.getElementById('cat-price').value) || 0;
+  if(!name){ alert('נא להזין שם מוצר'); return; }
+  state.products.push({ id: uid(), name, price });
+  save();
+  document.getElementById('cat-name').value = '';
+  document.getElementById('cat-price').value = '';
+  renderCatalog();
+}
+
+function updateCatalogPrice(id, value){
+  const p = state.products.find(x => x.id === id);
+  if(p){ p.price = parseFloat(value) || 0; save(); }
+}
+
+function deleteCatalogProduct(id){
+  if(!confirm('למחוק מוצר זה מהרשימה השמורה?')) return;
+  state.products = state.products.filter(p => p.id !== id);
+  save();
+  renderCatalog();
 }
 
 function addPayment(){
