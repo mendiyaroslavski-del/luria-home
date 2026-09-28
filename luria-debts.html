@@ -272,6 +272,8 @@ body::before {
 #pdf-render table { width: 100%; border-collapse: collapse; font-size: 12px; }
 #pdf-render th { text-align: right; background: #1a3d2b; color: #fff; padding: 9px 10px; font-weight: 500; }
 #pdf-render td { padding: 8px 10px; border-bottom: 1px solid #e7e2d5; }
+#pdf-render td:nth-child(3), #pdf-render td:nth-child(4), #pdf-render td:nth-child(5), #pdf-render td:nth-child(6) { white-space: nowrap; }
+#pdf-render th:nth-child(3), #pdf-render th:nth-child(4), #pdf-render th:nth-child(5), #pdf-render th:nth-child(6) { white-space: nowrap; }
 #pdf-render tr:last-child td { font-weight: 700; border-top: 2px solid #1a3d2b; border-bottom:none; }
 #pdf-render .p-foot { margin-top: 22px; font-size: 10px; color: #999; text-align: center; }
 </style>
@@ -795,7 +797,7 @@ function addDebtFromProducts(){
     if(!name || qty <= 0) return;
     addedAny = true;
     const description = `${qty} יח' ${name}`;
-    state.entries.push({ id: uid(), clientId: currentClientId, type: 'debt', amount: qty * price, date, description, currency });
+    state.entries.push({ id: uid(), clientId: currentClientId, type: 'debt', amount: qty * price, date, description, currency, qty, unitPrice: price });
     // Remember this as the price agreed with THIS client for THIS product — prices are dynamic per client.
     if(productId) setClientPrice(currentClientId, productId, price);
   });
@@ -916,8 +918,8 @@ async function exportClientPdf(){
         <div class="p-sbox"><div class="n" style="color:#16281f">${fmt(0)}</div><div class="l">יתרה לתשלום</div></div>
       </div>
       <table>
-        <thead><tr><th>תאריך</th><th>תיאור</th><th>סוג</th><th>סכום</th><th>יתרה</th></tr></thead>
-        <tbody><tr><td colspan="5" style="text-align:center;color:#999">אין רשומות</td></tr></tbody>
+        <thead><tr><th>תאריך</th><th>תיאור</th><th>כמות</th><th>מחיר יח'</th><th>סה"כ</th><th>יתרה</th></tr></thead>
+        <tbody><tr><td colspan="6" style="text-align:center;color:#999">אין רשומות</td></tr></tbody>
       </table>`;
   } else {
     usedCurrencies.forEach(cur => {
@@ -926,15 +928,18 @@ async function exportClientPdf(){
       let running = 0;
       const rows = curEntries.map(e => {
         running += (e.type === 'debt' ? e.amount : -e.amount);
+        const qtyCell = (e.qty !== undefined && e.qty !== null) ? e.qty : '—';
+        const priceCell = (e.unitPrice !== undefined && e.unitPrice !== null) ? fmt(e.unitPrice, cur.code) : '—';
         return `<tr>
           <td>${heDate(e.date)}</td>
           <td>${escapeHtml(e.description || (e.type==='debt'?'חוב':'תשלום'))}</td>
-          <td>${e.type==='debt' ? 'חוב' : 'תשלום'}</td>
+          <td>${qtyCell}</td>
+          <td>${priceCell}</td>
           <td>${e.type==='debt' ? '+' : '−'}${fmt(e.amount, cur.code)}</td>
           <td>${fmt(running, cur.code)}</td>
         </tr>`;
       }).join('');
-      const totalRow = `<tr><td colspan="4">יתרה לתשלום</td><td>${fmt(t.balance, cur.code)}</td></tr>`;
+      const totalRow = `<tr><td colspan="5">יתרה לתשלום</td><td>${fmt(t.balance, cur.code)}</td></tr>`;
       sectionsHtml += `
         ${usedCurrencies.length > 1 ? `<div style="font-family:'Frank Ruhl Libre',serif;font-weight:700;font-size:14px;margin:18px 0 8px;color:#1a3d2b">${cur.label}</div>` : ''}
         <div class="p-summary">
@@ -943,8 +948,8 @@ async function exportClientPdf(){
           <div class="p-sbox"><div class="n" style="color:#16281f">${fmt(t.balance, cur.code)}</div><div class="l">יתרה לתשלום</div></div>
         </div>
         <table>
-          <thead><tr><th>תאריך</th><th>תיאור</th><th>סוג</th><th>סכום</th><th>יתרה</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="5" style="text-align:center;color:#999">אין רשומות</td></tr>'}${totalRow}</tbody>
+          <thead><tr><th>תאריך</th><th>תיאור</th><th>כמות</th><th>מחיר יח'</th><th>סה"כ</th><th>יתרה</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:#999">אין רשומות</td></tr>'}${totalRow}</tbody>
         </table>`;
     });
   }
