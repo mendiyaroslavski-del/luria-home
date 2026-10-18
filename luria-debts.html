@@ -193,6 +193,7 @@ body::before {
 .entry-amt { font-family: 'Frank Ruhl Libre', serif; font-weight: 700; display: flex; align-items: center; gap: 8px; }
 .entry-amt.debt { color: var(--danger); }
 .entry-amt.payment { color: var(--light); }
+.entry-amt.credit { color: var(--gold-light); }
 .entry-del { background: none; border: none; color: rgba(255,255,255,0.3); cursor: pointer; font-size: 15px; padding: 2px 6px; }
 
 .section-title { font-size: 12px; letter-spacing: 1px; color: rgba(255,255,255,0.4); text-transform: uppercase; margin: 18px 0 8px; }
@@ -362,6 +363,7 @@ body::before {
     <div class="tabs">
       <button class="tab-btn active" id="tab-debt-btn" onclick="switchTab('debt')">➕ הוספת חוב</button>
       <button class="tab-btn" id="tab-payment-btn" onclick="switchTab('payment')">💵 רישום תשלום</button>
+      <button class="tab-btn" id="tab-credit-btn" onclick="switchTab('credit')">↩️ זיכוי</button>
     </div>
 
     <div id="tab-debt">
@@ -414,6 +416,39 @@ body::before {
       <button class="btn btn-gold btn-full" onclick="addPayment()">רישום תשלום</button>
     </div>
 
+    <div id="tab-credit" style="display:none">
+      <div class="field"><label>תאריך</label><input type="date" id="nc-date"></div>
+      <div style="display:flex; gap:10px; align-items:flex-end;">
+        <div class="field" style="width:110px">
+          <label>מטבע</label>
+          <select id="nc-currency" onchange="recalcAllProductLines('credit')">
+            <option value="ILS">₪ שקל</option>
+            <option value="USD">$ דולר</option>
+            <option value="EUR">€ יורו</option>
+          </select>
+        </div>
+        <div style="flex:1; text-align:left; padding-bottom:12px;">
+          <button type="button" class="btn btn-outline btn-sm" id="credit-mode-btn" onclick="toggleCreditMode()">🧮 מילוי לפי מוצר</button>
+        </div>
+      </div>
+
+      <div id="credit-simple-fields">
+        <div class="field"><label>סכום לזיכוי</label><input type="number" inputmode="decimal" id="nc-amount" placeholder="0"></div>
+        <div class="field"><label>סיבת הזיכוי</label><input id="nc-desc" placeholder="לדוגמה: החזרת סחורה / טעות בחיוב"></div>
+      </div>
+
+      <div id="credit-product-fields" style="display:none">
+        <div id="credit-product-lines"></div>
+        <button type="button" class="btn btn-outline btn-full btn-sm" onclick="addProductLine('credit')" style="margin-bottom:10px">+ הוספת מוצר לשורה</button>
+        <div class="product-total-row">
+          <span>סה"כ זיכוי לשורות אלו</span>
+          <span class="n" id="credit-total-display">₪0</span>
+        </div>
+      </div>
+
+      <button class="btn btn-gold btn-full" onclick="submitCreditForm()">רישום זיכוי</button>
+    </div>
+
     <div class="section-title">היסטוריה</div>
     <div id="entries-list"></div>
   </div>
@@ -456,7 +491,7 @@ const CURRENCIES = [
 function currencyInfo(code){ return CURRENCIES.find(c => c.code === code) || CURRENCIES[0]; }
 function fmt(n, code){
   const symbol = currencyInfo(code || 'ILS').symbol;
-  return symbol + Number(n||0).toLocaleString('he-IL', {maximumFractionDigits:0});
+  return symbol + Number(n||0).toLocaleString('he-IL', {minimumFractionDigits:0, maximumFractionDigits:2});
 }
 function today(){ return new Date().toISOString().slice(0,10); }
 function heDate(d){
@@ -473,12 +508,19 @@ function clientTotalsByCurrency(id){
   const map = {};
   es.forEach(e => {
     const code = e.currency || 'ILS';
-    if(!map[code]) map[code] = { debt: 0, paid: 0 };
+    if(!map[code]) map[code] = { debt: 0, paid: 0, credit: 0 };
     if(e.type === 'debt') map[code].debt += Number(e.amount);
+    else if(e.type === 'credit') map[code].credit += Number(e.amount);
     else map[code].paid += Number(e.amount);
   });
-  Object.keys(map).forEach(code => { map[code].balance = map[code].debt - map[code].paid; });
+  Object.keys(map).forEach(code => { map[code].balance = map[code].debt - map[code].paid - map[code].credit; });
   return map;
+}
+
+function entryLabel(e){
+  if(e.type === 'debt') return 'חוב';
+  if(e.type === 'credit') return 'זיכוי';
+  return 'תשלום';
 }
 
 function renderAll(){
@@ -603,12 +645,22 @@ function openDetail(id){
   document.getElementById('np-amount').value = '';
   document.getElementById('np-desc').value = '';
   document.getElementById('np-currency').value = 'ILS';
+  document.getElementById('nc-date').value = today();
+  document.getElementById('nc-amount').value = '';
+  document.getElementById('nc-desc').value = '';
+  document.getElementById('nc-currency').value = 'ILS';
   isProductMode = false;
   document.getElementById('debt-simple-fields').style.display = 'block';
   document.getElementById('debt-product-fields').style.display = 'none';
   document.getElementById('debt-mode-btn').textContent = '🧮 מילוי לפי מוצר';
   document.getElementById('product-lines').innerHTML = '';
-  addProductLine();
+  addProductLine('debt');
+  isCreditProductMode = false;
+  document.getElementById('credit-simple-fields').style.display = 'block';
+  document.getElementById('credit-product-fields').style.display = 'none';
+  document.getElementById('credit-mode-btn').textContent = '🧮 מילוי לפי מוצר';
+  document.getElementById('credit-product-lines').innerHTML = '';
+  addProductLine('credit');
   switchTab('debt');
   renderDetail();
   openModal('overlay-detail');
@@ -631,11 +683,13 @@ function renderDetail(){
     boxesEl.innerHTML = usedCurrencies.map((cur, i) => {
       const t = totals[cur.code];
       const balColor = t.balance > 0 ? 'var(--danger)' : 'var(--light)';
+      const hasCredit = t.credit > 0;
       return `
       ${usedCurrencies.length > 1 ? `<div style="font-size:11px;color:rgba(255,255,255,0.45);margin:${i>0?'12px':'0'} 0 5px 2px">${cur.label}</div>` : ''}
-      <div class="balance-box">
+      <div class="balance-box" ${hasCredit ? 'style="grid-template-columns:1fr 1fr 1fr 1fr;"' : ''}>
         <div class="balance-item"><div class="n" style="color:var(--danger)">${fmt(t.debt, cur.code)}</div><div class="l">חוב מקורי</div></div>
         <div class="balance-item"><div class="n" style="color:var(--light)">${fmt(t.paid, cur.code)}</div><div class="l">שולם</div></div>
+        ${hasCredit ? `<div class="balance-item"><div class="n" style="color:var(--gold-light)">${fmt(t.credit, cur.code)}</div><div class="l">זיכויים</div></div>` : ''}
         <div class="balance-item"><div class="n" style="color:${balColor}">${fmt(t.balance, cur.code)}</div><div class="l">יתרה</div></div>
       </div>`;
     }).join('');
@@ -650,7 +704,7 @@ function renderDetail(){
   list.innerHTML = entries.slice().reverse().map(e => `
     <div class="entry-row">
       <div class="entry-left">
-        <div class="entry-desc">${escapeHtml(e.description || (e.type==='debt' ? 'חוב' : 'תשלום'))}</div>
+        <div class="entry-desc">${escapeHtml(e.description || entryLabel(e))}</div>
         <div class="entry-date">${heDate(e.date)}</div>
       </div>
       <div class="entry-amt ${e.type}">
@@ -664,11 +718,14 @@ function renderDetail(){
 function switchTab(tab){
   document.getElementById('tab-debt').style.display = tab==='debt' ? 'block' : 'none';
   document.getElementById('tab-payment').style.display = tab==='payment' ? 'block' : 'none';
+  document.getElementById('tab-credit').style.display = tab==='credit' ? 'block' : 'none';
   document.getElementById('tab-debt-btn').classList.toggle('active', tab==='debt');
   document.getElementById('tab-payment-btn').classList.toggle('active', tab==='payment');
+  document.getElementById('tab-credit-btn').classList.toggle('active', tab==='credit');
 }
 
 let isProductMode = false;
+let isCreditProductMode = false;
 
 function toggleDebtMode(){
   isProductMode = !isProductMode;
@@ -686,12 +743,14 @@ function productOptionsHtml(selectedId){
   return opts;
 }
 
-function addProductLine(){
+function addProductLine(scope){
+  scope = scope || 'debt';
   const rowId = uid();
-  const wrap = document.getElementById('product-lines');
+  const wrap = document.getElementById(scope === 'credit' ? 'credit-product-lines' : 'product-lines');
   const row = document.createElement('div');
   row.className = 'product-line';
   row.dataset.rowId = rowId;
+  row.dataset.scope = scope;
   row.innerHTML = `
     <select class="pl-product" onchange="onProductSelect('${rowId}')">${productOptionsHtml(state.products[0] ? undefined : '__custom__')}</select>
     <input class="pl-qty" type="number" value="1" min="0" oninput="recalcProductLine('${rowId}')" placeholder="כמות">
@@ -699,7 +758,7 @@ function addProductLine(){
     <div class="pl-subtotal" id="sub-${rowId}">₪0</div>
     <button type="button" class="pl-del" onclick="removeProductLine('${rowId}')">✕</button>
     <div class="pl-hint" id="hint-${rowId}" style="grid-column:1/-1; font-size:10px; color:rgba(255,255,255,0.35); margin-top:-4px;"></div>
-    <input class="pl-name-custom" placeholder="שם המוצר החדש" style="display:${state.products.length?'none':'block'}" oninput="recalcProductTotal()">
+    <input class="pl-name-custom" placeholder="שם המוצר החדש" style="display:${state.products.length?'none':'block'}" oninput="recalcProductTotal('${scope}')">
   `;
   wrap.appendChild(row);
   onProductSelect(rowId, true);
@@ -735,33 +794,39 @@ function onProductSelect(rowId, skipRecalc){
 
 function removeProductLine(rowId){
   const row = document.querySelector(`.product-line[data-row-id="${rowId}"]`);
+  const scope = row ? (row.dataset.scope || 'debt') : 'debt';
   if(row) row.remove();
-  recalcProductTotal();
+  recalcProductTotal(scope);
 }
 
 function recalcProductLine(rowId){
   const row = document.querySelector(`.product-line[data-row-id="${rowId}"]`);
   if(!row) return;
+  const scope = row.dataset.scope || 'debt';
   const qty = parseFloat(row.querySelector('.pl-qty').value) || 0;
   const price = parseFloat(row.querySelector('.pl-price').value) || 0;
-  const currency = document.getElementById('nd-currency').value;
+  const currency = document.getElementById(scope === 'credit' ? 'nc-currency' : 'nd-currency').value;
   document.getElementById('sub-' + rowId).textContent = fmt(qty * price, currency);
-  recalcProductTotal();
+  recalcProductTotal(scope);
 }
 
-function recalcProductTotal(){
-  const currency = document.getElementById('nd-currency').value;
+function recalcProductTotal(scope){
+  scope = scope || 'debt';
+  const currency = document.getElementById(scope === 'credit' ? 'nc-currency' : 'nd-currency').value;
+  const containerId = scope === 'credit' ? 'credit-product-lines' : 'product-lines';
   let total = 0;
-  document.querySelectorAll('.product-line').forEach(row => {
+  document.querySelectorAll(`#${containerId} .product-line`).forEach(row => {
     const qty = parseFloat(row.querySelector('.pl-qty').value) || 0;
     const price = parseFloat(row.querySelector('.pl-price').value) || 0;
     total += qty * price;
   });
-  document.getElementById('product-total-display').textContent = fmt(total, currency);
+  document.getElementById(scope === 'credit' ? 'credit-total-display' : 'product-total-display').textContent = fmt(total, currency);
 }
 
-function recalcAllProductLines(){
-  document.querySelectorAll('.product-line').forEach(row => recalcProductLine(row.dataset.rowId));
+function recalcAllProductLines(scope){
+  scope = scope || 'debt';
+  const containerId = scope === 'credit' ? 'credit-product-lines' : 'product-lines';
+  document.querySelectorAll(`#${containerId} .product-line`).forEach(row => recalcProductLine(row.dataset.rowId));
 }
 
 function submitDebtForm(){
@@ -772,7 +837,7 @@ function submitDebtForm(){
 function addDebtFromProducts(){
   const date = document.getElementById('nd-date').value || today();
   const currency = document.getElementById('nd-currency').value;
-  const rows = Array.from(document.querySelectorAll('.product-line'));
+  const rows = Array.from(document.querySelectorAll('#product-lines .product-line'));
   let addedAny = false;
 
   rows.forEach(row => {
@@ -805,7 +870,7 @@ function addDebtFromProducts(){
   if(!addedAny){ alert('נא להזין לפחות מוצר אחד עם כמות תקינה'); return; }
   save();
   document.getElementById('product-lines').innerHTML = '';
-  addProductLine();
+  addProductLine('debt');
   renderDetail(); renderAll();
 }
 
@@ -819,6 +884,72 @@ function addDebt(){
   save();
   document.getElementById('nd-amount').value = '';
   document.getElementById('nd-desc').value = '';
+  renderDetail(); renderAll();
+}
+
+function toggleCreditMode(){
+  isCreditProductMode = !isCreditProductMode;
+  document.getElementById('credit-simple-fields').style.display = isCreditProductMode ? 'none' : 'block';
+  document.getElementById('credit-product-fields').style.display = isCreditProductMode ? 'block' : 'none';
+  document.getElementById('credit-mode-btn').textContent = isCreditProductMode ? '✏️ מילוי חופשי' : '🧮 מילוי לפי מוצר';
+  if(isCreditProductMode && document.getElementById('credit-product-lines').children.length === 0){
+    addProductLine('credit');
+  }
+}
+
+function submitCreditForm(){
+  if(isCreditProductMode) addCreditFromProducts();
+  else addCredit();
+}
+
+function addCreditFromProducts(){
+  const date = document.getElementById('nc-date').value || today();
+  const currency = document.getElementById('nc-currency').value;
+  const rows = Array.from(document.querySelectorAll('#credit-product-lines .product-line'));
+  let addedAny = false;
+
+  rows.forEach(row => {
+    const sel = row.querySelector('.pl-product');
+    const qty = parseFloat(row.querySelector('.pl-qty').value) || 0;
+    const price = parseFloat(row.querySelector('.pl-price').value) || 0;
+    let name, productId;
+    if(sel.value === '__custom__'){
+      name = row.querySelector('.pl-name-custom').value.trim();
+      const existing = state.products.find(p => p.name === name);
+      if(existing){
+        productId = existing.id;
+      } else if(name){
+        productId = uid();
+        state.products.push({ id: productId, name, price });
+      }
+    } else {
+      const p = state.products.find(x => x.id === sel.value);
+      name = p ? p.name : '';
+      productId = sel.value;
+    }
+    if(!name || qty <= 0) return;
+    addedAny = true;
+    const description = `זיכוי: ${qty} יח' ${name}`;
+    state.entries.push({ id: uid(), clientId: currentClientId, type: 'credit', amount: qty * price, date, description, currency, qty, unitPrice: price });
+  });
+
+  if(!addedAny){ alert('נא להזין לפחות מוצר אחד עם כמות תקינה'); return; }
+  save();
+  document.getElementById('credit-product-lines').innerHTML = '';
+  addProductLine('credit');
+  renderDetail(); renderAll();
+}
+
+function addCredit(){
+  const amount = parseFloat(document.getElementById('nc-amount').value);
+  if(!amount || amount <= 0){ alert('נא להזין סכום תקין'); return; }
+  const date = document.getElementById('nc-date').value || today();
+  const description = document.getElementById('nc-desc').value.trim();
+  const currency = document.getElementById('nc-currency').value;
+  state.entries.push({ id: uid(), clientId: currentClientId, type: 'credit', amount, date, description, currency });
+  save();
+  document.getElementById('nc-amount').value = '';
+  document.getElementById('nc-desc').value = '';
   renderDetail(); renderAll();
 }
 
@@ -932,7 +1063,7 @@ async function exportClientPdf(){
         const priceCell = (e.unitPrice !== undefined && e.unitPrice !== null) ? fmt(e.unitPrice, cur.code) : '—';
         return `<tr>
           <td>${heDate(e.date)}</td>
-          <td>${escapeHtml(e.description || (e.type==='debt'?'חוב':'תשלום'))}</td>
+          <td>${escapeHtml(e.description || entryLabel(e))}</td>
           <td>${qtyCell}</td>
           <td>${priceCell}</td>
           <td>${e.type==='debt' ? '+' : '−'}${fmt(e.amount, cur.code)}</td>
@@ -940,11 +1071,13 @@ async function exportClientPdf(){
         </tr>`;
       }).join('');
       const totalRow = `<tr><td colspan="5">יתרה לתשלום</td><td>${fmt(t.balance, cur.code)}</td></tr>`;
+      const hasCredit = t.credit > 0;
       sectionsHtml += `
         ${usedCurrencies.length > 1 ? `<div style="font-family:'Frank Ruhl Libre',serif;font-weight:700;font-size:14px;margin:18px 0 8px;color:#1a3d2b">${cur.label}</div>` : ''}
-        <div class="p-summary">
+        <div class="p-summary" ${hasCredit ? 'style="grid-template-columns:1fr 1fr 1fr 1fr;"' : ''}>
           <div class="p-sbox"><div class="n" style="color:#c0392b">${fmt(t.debt, cur.code)}</div><div class="l">סה"כ חוב מקורי</div></div>
           <div class="p-sbox"><div class="n" style="color:#2d6a4f">${fmt(t.paid, cur.code)}</div><div class="l">סה"כ שולם</div></div>
+          ${hasCredit ? `<div class="p-sbox"><div class="n" style="color:#a3832b">${fmt(t.credit, cur.code)}</div><div class="l">סה"כ זיכויים</div></div>` : ''}
           <div class="p-sbox"><div class="n" style="color:#16281f">${fmt(t.balance, cur.code)}</div><div class="l">יתרה לתשלום</div></div>
         </div>
         <table>
