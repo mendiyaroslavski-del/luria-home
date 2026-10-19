@@ -195,6 +195,10 @@ body::before {
 .entry-amt.payment { color: var(--light); }
 .entry-amt.credit { color: var(--gold-light); }
 .entry-del { background: none; border: none; color: rgba(255,255,255,0.3); cursor: pointer; font-size: 15px; padding: 2px 6px; }
+.entry-move { display: flex; flex-direction: column; gap: 1px; margin-left: 2px; }
+.entry-move-btn { background: none; border: none; color: rgba(255,255,255,0.35); cursor: pointer; font-size: 10px; line-height: 1; padding: 2px 5px; }
+.entry-move-btn:disabled { opacity: 0.15; cursor: default; }
+.entry-move-btn:not(:disabled):active { color: var(--gold-light); }
 
 .section-title { font-size: 12px; letter-spacing: 1px; color: rgba(255,255,255,0.4); text-transform: uppercase; margin: 18px 0 8px; }
 
@@ -470,7 +474,36 @@ function load(){
   catch(e){ s = { clients: [], entries: [] }; }
   if(!s.products) s.products = [];
   if(!s.clientPrices) s.clientPrices = {}; // { clientId: { productId: lastAgreedPrice } }
+  if(!s.entries) s.entries = [];
+  // Give every entry a stable manual-order number, so rows can be reordered within the same date.
+  s.entries.forEach((e, i) => { if(e.order === undefined) e.order = i; });
+  if(s.seq === undefined) s.seq = s.entries.length;
   return s;
+}
+function clientEntriesSorted(id){
+  return clientEntries(id).slice().sort((a,b) => {
+    const d = a.date.localeCompare(b.date);
+    if(d !== 0) return d;
+    return (a.order||0) - (b.order||0);
+  });
+}
+function moveEntryUp(id){
+  const list = clientEntriesSorted(currentClientId).reverse();
+  const i = list.findIndex(e => e.id === id);
+  if(i <= 0) return;
+  const a = list[i], b = list[i-1];
+  if(a.date !== b.date) return;
+  const tmp = a.order; a.order = b.order; b.order = tmp;
+  save(); renderDetail();
+}
+function moveEntryDown(id){
+  const list = clientEntriesSorted(currentClientId).reverse();
+  const i = list.findIndex(e => e.id === id);
+  if(i === -1 || i >= list.length-1) return;
+  const a = list[i], b = list[i+1];
+  if(a.date !== b.date) return;
+  const tmp = a.order; a.order = b.order; b.order = tmp;
+  save(); renderDetail();
 }
 function getClientPrice(clientId, productId){
   return (state.clientPrices[clientId] && state.clientPrices[clientId][productId] !== undefined)
@@ -695,24 +728,36 @@ function renderDetail(){
     }).join('');
   }
 
-  const entries = clientEntries(currentClientId).slice().sort((a,b) => a.date.localeCompare(b.date));
+  const entries = clientEntriesSorted(currentClientId);
   const list = document.getElementById('entries-list');
   if(entries.length === 0){
     list.innerHTML = `<div class="empty-state" style="padding:24px 0">אין עדיין רשומות ללקוח זה.</div>`;
     return;
   }
-  list.innerHTML = entries.slice().reverse().map(e => `
+  const displayList = entries.slice().reverse();
+  list.innerHTML = displayList.map((e, i) => {
+    const prev = displayList[i-1], next = displayList[i+1];
+    const canUp = i > 0 && prev.date === e.date;
+    const canDown = i < displayList.length-1 && next.date === e.date;
+    return `
     <div class="entry-row">
-      <div class="entry-left">
-        <div class="entry-desc">${escapeHtml(e.description || entryLabel(e))}</div>
-        <div class="entry-date">${heDate(e.date)}</div>
+      <div style="display:flex; align-items:center; gap:6px;">
+        <div class="entry-move">
+          <button class="entry-move-btn" onclick="moveEntryUp('${e.id}')" ${canUp ? '' : 'disabled'}>▲</button>
+          <button class="entry-move-btn" onclick="moveEntryDown('${e.id}')" ${canDown ? '' : 'disabled'}>▼</button>
+        </div>
+        <div class="entry-left">
+          <div class="entry-desc">${escapeHtml(e.description || entryLabel(e))}</div>
+          <div class="entry-date">${heDate(e.date)}</div>
+        </div>
       </div>
       <div class="entry-amt ${e.type}">
         ${e.type==='debt' ? '+' : '−'}${fmt(e.amount, e.currency || 'ILS')}
         <button class="entry-del" onclick="deleteEntry('${e.id}')">✕</button>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function switchTab(tab){
@@ -862,7 +907,7 @@ function addDebtFromProducts(){
     if(!name || qty <= 0) return;
     addedAny = true;
     const description = `${qty} יח' ${name}`;
-    state.entries.push({ id: uid(), clientId: currentClientId, type: 'debt', amount: qty * price, date, description, currency, qty, unitPrice: price });
+    state.entries.push({ id: uid(), clientId: currentClientId, type: 'debt', amount: qty * price, date, description, currency, qty, unitPrice: price, order: ++state.seq });
     // Remember this as the price agreed with THIS client for THIS product — prices are dynamic per client.
     if(productId) setClientPrice(currentClientId, productId, price);
   });
@@ -880,7 +925,7 @@ function addDebt(){
   const date = document.getElementById('nd-date').value || today();
   const description = document.getElementById('nd-desc').value.trim();
   const currency = document.getElementById('nd-currency').value;
-  state.entries.push({ id: uid(), clientId: currentClientId, type: 'debt', amount, date, description, currency });
+  state.entries.push({ id: uid(), clientId: currentClientId, type: 'debt', amount, date, description, currency, order: ++state.seq });
   save();
   document.getElementById('nd-amount').value = '';
   document.getElementById('nd-desc').value = '';
@@ -930,7 +975,7 @@ function addCreditFromProducts(){
     if(!name || qty <= 0) return;
     addedAny = true;
     const description = `זיכוי: ${qty} יח' ${name}`;
-    state.entries.push({ id: uid(), clientId: currentClientId, type: 'credit', amount: qty * price, date, description, currency, qty, unitPrice: price });
+    state.entries.push({ id: uid(), clientId: currentClientId, type: 'credit', amount: qty * price, date, description, currency, qty, unitPrice: price, order: ++state.seq });
   });
 
   if(!addedAny){ alert('נא להזין לפחות מוצר אחד עם כמות תקינה'); return; }
@@ -946,7 +991,7 @@ function addCredit(){
   const date = document.getElementById('nc-date').value || today();
   const description = document.getElementById('nc-desc').value.trim();
   const currency = document.getElementById('nc-currency').value;
-  state.entries.push({ id: uid(), clientId: currentClientId, type: 'credit', amount, date, description, currency });
+  state.entries.push({ id: uid(), clientId: currentClientId, type: 'credit', amount, date, description, currency, order: ++state.seq });
   save();
   document.getElementById('nc-amount').value = '';
   document.getElementById('nc-desc').value = '';
@@ -1007,7 +1052,7 @@ function addPayment(){
   const date = document.getElementById('np-date').value || today();
   const description = document.getElementById('np-desc').value.trim();
   const currency = document.getElementById('np-currency').value;
-  state.entries.push({ id: uid(), clientId: currentClientId, type: 'payment', amount, date, description, currency });
+  state.entries.push({ id: uid(), clientId: currentClientId, type: 'payment', amount, date, description, currency, order: ++state.seq });
   save();
   document.getElementById('np-amount').value = '';
   document.getElementById('np-desc').value = '';
@@ -1038,7 +1083,7 @@ async function exportClientPdf(){
   if(!c) return;
   const totals = clientTotalsByCurrency(c.id);
   const usedCurrencies = CURRENCIES.filter(cur => totals[cur.code]);
-  const entries = clientEntries(c.id).slice().sort((a,b) => a.date.localeCompare(b.date));
+  const entries = clientEntriesSorted(c.id);
 
   let sectionsHtml = '';
   if(usedCurrencies.length === 0){
