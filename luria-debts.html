@@ -359,9 +359,12 @@ body::before {
 
     <div id="balance-boxes"></div>
 
-    <div style="display:flex; gap:8px; margin-bottom:14px;">
+    <div style="display:flex; gap:8px; margin-bottom:8px;">
       <button class="btn btn-outline" style="flex:1" onclick="exportClientPdf()">📄 הפק PDF</button>
       <button class="btn btn-danger" onclick="deleteClient()">מחק לקוח</button>
+    </div>
+    <div style="display:flex; gap:8px; margin-bottom:14px;">
+      <button class="btn btn-outline btn-sm" style="flex:1" onclick="unifyDates()">📅 איחוד כל התאריכים לאחרון</button>
     </div>
 
     <div class="tabs">
@@ -481,18 +484,14 @@ function load(){
   return s;
 }
 function clientEntriesSorted(id){
-  return clientEntries(id).slice().sort((a,b) => {
-    const d = a.date.localeCompare(b.date);
-    if(d !== 0) return d;
-    return (a.order||0) - (b.order||0);
-  });
+  // Manual order is the sole sort key, so the client can freely arrange rows top-to-bottom.
+  return clientEntries(id).slice().sort((a,b) => (a.order||0) - (b.order||0));
 }
 function moveEntryUp(id){
   const list = clientEntriesSorted(currentClientId).reverse();
   const i = list.findIndex(e => e.id === id);
   if(i <= 0) return;
   const a = list[i], b = list[i-1];
-  if(a.date !== b.date) return;
   const tmp = a.order; a.order = b.order; b.order = tmp;
   save(); renderDetail();
 }
@@ -501,7 +500,6 @@ function moveEntryDown(id){
   const i = list.findIndex(e => e.id === id);
   if(i === -1 || i >= list.length-1) return;
   const a = list[i], b = list[i+1];
-  if(a.date !== b.date) return;
   const tmp = a.order; a.order = b.order; b.order = tmp;
   save(); renderDetail();
 }
@@ -736,9 +734,8 @@ function renderDetail(){
   }
   const displayList = entries.slice().reverse();
   list.innerHTML = displayList.map((e, i) => {
-    const prev = displayList[i-1], next = displayList[i+1];
-    const canUp = i > 0 && prev.date === e.date;
-    const canDown = i < displayList.length-1 && next.date === e.date;
+    const canUp = i > 0;
+    const canDown = i < displayList.length-1;
     return `
     <div class="entry-row">
       <div style="display:flex; align-items:center; gap:6px;">
@@ -1072,6 +1069,17 @@ function deleteClient(){
   state.entries = state.entries.filter(e => e.clientId !== currentClientId);
   save();
   closeModal('overlay-detail');
+  renderAll();
+}
+
+function unifyDates(){
+  const entries = clientEntries(currentClientId);
+  if(entries.length === 0){ alert('אין עדיין רשומות ללקוח זה.'); return; }
+  const maxDate = entries.reduce((m, e) => (e.date > m ? e.date : m), entries[0].date);
+  if(!confirm(`לאחד את התאריך של כל הרשומות של הלקוח הזה לתאריך ${heDate(maxDate)}? פעולה זו משנה את התאריך השמור בכל שורה, ולא ניתנת לביטול אוטומטי.`)) return;
+  entries.forEach(e => { e.date = maxDate; });
+  save();
+  renderDetail();
   renderAll();
 }
 
