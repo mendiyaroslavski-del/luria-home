@@ -346,6 +346,17 @@ body::before {
   </div>
 </div>
 
+<!-- Shipments modal -->
+<div class="overlay" id="overlay-shipments">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">PDF נפרד לכל משלוח</div>
+      <button class="modal-close" onclick="closeModal('overlay-shipments')">✕</button>
+    </div>
+    <div id="shipments-list"></div>
+  </div>
+</div>
+
 <!-- Client detail modal -->
 <div class="overlay" id="overlay-detail">
   <div class="modal">
@@ -364,7 +375,8 @@ body::before {
       <button class="btn btn-danger" onclick="deleteClient()">מחק לקוח</button>
     </div>
     <div style="display:flex; gap:8px; margin-bottom:14px;">
-      <button class="btn btn-outline btn-sm" style="flex:1" onclick="unifyDates()">📅 איחוד כל התאריכים לאחרון</button>
+      <button class="btn btn-outline btn-sm" style="flex:1" onclick="openShipments()">📦 PDF נפרד לכל משלוח</button>
+      <button class="btn btn-outline btn-sm" style="flex:1" onclick="unifyDates()">📅 איחוד תאריכים</button>
     </div>
 
     <div class="tabs">
@@ -375,6 +387,7 @@ body::before {
 
     <div id="tab-debt">
       <div class="field"><label>תאריך</label><input type="date" id="nd-date"></div>
+      <div class="field"><label>משלוח / קבוצה (לא חובה)</label><input id="nd-shipment" placeholder="לדוגמה: משלוח אוגוסט"></div>
       <div style="display:flex; gap:10px; align-items:flex-end;">
         <div class="field" style="width:110px">
           <label>מטבע</label>
@@ -672,6 +685,7 @@ function openDetail(id){
   document.getElementById('np-date').value = today();
   document.getElementById('nd-amount').value = '';
   document.getElementById('nd-desc').value = '';
+  document.getElementById('nd-shipment').value = '';
   document.getElementById('nd-currency').value = 'ILS';
   document.getElementById('np-amount').value = '';
   document.getElementById('np-desc').value = '';
@@ -745,7 +759,7 @@ function renderDetail(){
         </div>
         <div class="entry-left">
           <div class="entry-desc">${escapeHtml(e.description || entryLabel(e))}</div>
-          <div class="entry-date">${heDate(e.date)}</div>
+          <div class="entry-date">${heDate(e.date)}${e.shipment ? ' · 📦 ' + escapeHtml(e.shipment) : ''}</div>
         </div>
       </div>
       <div class="entry-amt ${e.type}">
@@ -879,6 +893,7 @@ function submitDebtForm(){
 function addDebtFromProducts(){
   const date = document.getElementById('nd-date').value || today();
   const currency = document.getElementById('nd-currency').value;
+  const shipment = document.getElementById('nd-shipment').value.trim();
   const rows = Array.from(document.querySelectorAll('#product-lines .product-line'));
   let addedAny = false;
 
@@ -904,7 +919,7 @@ function addDebtFromProducts(){
     if(!name || qty <= 0) return;
     addedAny = true;
     const description = `${qty} יח' ${name}`;
-    state.entries.push({ id: uid(), clientId: currentClientId, type: 'debt', amount: qty * price, date, description, currency, qty, unitPrice: price, order: ++state.seq });
+    state.entries.push({ id: uid(), clientId: currentClientId, type: 'debt', amount: qty * price, date, description, currency, qty, unitPrice: price, shipment, order: ++state.seq });
     // Remember this as the price agreed with THIS client for THIS product — prices are dynamic per client.
     if(productId) setClientPrice(currentClientId, productId, price);
   });
@@ -922,7 +937,8 @@ function addDebt(){
   const date = document.getElementById('nd-date').value || today();
   const description = document.getElementById('nd-desc').value.trim();
   const currency = document.getElementById('nd-currency').value;
-  state.entries.push({ id: uid(), clientId: currentClientId, type: 'debt', amount, date, description, currency, order: ++state.seq });
+  const shipment = document.getElementById('nd-shipment').value.trim();
+  state.entries.push({ id: uid(), clientId: currentClientId, type: 'debt', amount, date, description, currency, shipment, order: ++state.seq });
   save();
   document.getElementById('nd-amount').value = '';
   document.getElementById('nd-desc').value = '';
@@ -1109,21 +1125,86 @@ async function exportClientPdf(){
     usedCurrencies.forEach(cur => {
       const t = totals[cur.code];
       const curEntries = entries.filter(e => (e.currency || 'ILS') === cur.code);
-      let running = 0;
-      const rows = curEntries.map(e => {
-        running += (e.type === 'debt' ? e.amount : -e.amount);
-        const qtyCell = (e.qty !== undefined && e.qty !== null) ? e.qty : '—';
-        const priceCell = (e.unitPrice !== undefined && e.unitPrice !== null) ? fmt(e.unitPrice, cur.code) : '—';
-        return `<tr>
-          <td>${heDate(e.date)}</td>
-          <td>${escapeHtml(e.description || entryLabel(e))}</td>
-          <td>${qtyCell}</td>
-          <td>${priceCell}</td>
-          <td>${e.type==='debt' ? '+' : '−'}${fmt(e.amount, cur.code)}</td>
-          <td>${fmt(running, cur.code)}</td>
-        </tr>`;
-      }).join('');
-      const totalRow = `<tr><td colspan="5">יתרה לתשלום</td><td>${fmt(t.balance, cur.code)}</td></tr>`;
+      const debtEntries = curEntries.filter(e => e.type === 'debt');
+      const otherEntries = curEntries.filter(e => e.type !== 'debt');
+
+      // Group debt rows by shipment/batch, preserving the order each shipment first appears in.
+      const groups = [];
+      const groupIndex = {};
+      debtEntries.forEach(e => {
+        const key = e.shipment || '';
+        if(!(key in groupIndex)){ groupIndex[key] = groups.length; groups.push({ key, items: [] }); }
+        groups[groupIndex[key]].items.push(e);
+      });
+      const useGrouping = groups.length > 1 || (groups.length === 1 && groups[0].key !== '');
+
+      let tablesHtml = '';
+      if(!useGrouping){
+        // No shipments in use: original flat layout with a running balance column across everything.
+        let running = 0;
+        const rows = curEntries.map(e => {
+          running += (e.type === 'debt' ? e.amount : -e.amount);
+          const qtyCell = (e.qty !== undefined && e.qty !== null) ? e.qty : '—';
+          const priceCell = (e.unitPrice !== undefined && e.unitPrice !== null) ? fmt(e.unitPrice, cur.code) : '—';
+          return `<tr>
+            <td>${heDate(e.date)}</td>
+            <td>${escapeHtml(e.description || entryLabel(e))}</td>
+            <td>${qtyCell}</td>
+            <td>${priceCell}</td>
+            <td>${e.type==='debt' ? '+' : '−'}${fmt(e.amount, cur.code)}</td>
+            <td>${fmt(running, cur.code)}</td>
+          </tr>`;
+        }).join('');
+        const totalRow = `<tr><td colspan="5">יתרה לתשלום</td><td>${fmt(t.balance, cur.code)}</td></tr>`;
+        tablesHtml = `
+          <table>
+            <thead><tr><th>תאריך</th><th>תיאור</th><th>כמות</th><th>מחיר יח'</th><th>סה"כ</th><th>יתרה</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:#999">אין רשומות</td></tr>'}${totalRow}</tbody>
+          </table>`;
+      } else {
+        // Shipments in use: one itemized table per shipment with its own subtotal, then payments/credits, then the balance.
+        tablesHtml = groups.map(g => {
+          const label = g.key || 'ללא שיוך למשלוח';
+          const subtotal = g.items.reduce((s, e) => s + Number(e.amount), 0);
+          const rows = g.items.map(e => {
+            const qtyCell = (e.qty !== undefined && e.qty !== null) ? e.qty : '—';
+            const priceCell = (e.unitPrice !== undefined && e.unitPrice !== null) ? fmt(e.unitPrice, cur.code) : '—';
+            return `<tr>
+              <td>${heDate(e.date)}</td>
+              <td>${escapeHtml(e.description || entryLabel(e))}</td>
+              <td>${qtyCell}</td>
+              <td>${priceCell}</td>
+              <td>+${fmt(e.amount, cur.code)}</td>
+            </tr>`;
+          }).join('');
+          return `
+            <div style="font-family:'Heebo';font-weight:700;font-size:12px;margin:14px 0 6px;color:#1a3d2b">📦 ${escapeHtml(label)}</div>
+            <table>
+              <thead><tr><th>תאריך</th><th>תיאור</th><th>כמות</th><th>מחיר יח'</th><th>סה"כ</th></tr></thead>
+              <tbody>${rows}<tr><td colspan="4">סה"כ למשלוח</td><td>${fmt(subtotal, cur.code)}</td></tr></tbody>
+            </table>`;
+        }).join('');
+
+        if(otherEntries.length > 0){
+          const otherRows = otherEntries.map(e => `<tr>
+            <td>${heDate(e.date)}</td>
+            <td>${escapeHtml(e.description || entryLabel(e))}</td>
+            <td>${e.type==='debt' ? '+' : '−'}${fmt(e.amount, cur.code)}</td>
+          </tr>`).join('');
+          tablesHtml += `
+            <div style="font-family:'Heebo';font-weight:700;font-size:12px;margin:14px 0 6px;color:#1a3d2b">תשלומים וזיכויים</div>
+            <table>
+              <thead><tr><th>תאריך</th><th>תיאור</th><th>סכום</th></tr></thead>
+              <tbody>${otherRows}</tbody>
+            </table>`;
+        }
+
+        tablesHtml += `
+          <table style="margin-top:10px">
+            <tbody><tr><td style="font-weight:700">יתרה לתשלום</td><td style="font-weight:700">${fmt(t.balance, cur.code)}</td></tr></tbody>
+          </table>`;
+      }
+
       const hasCredit = t.credit > 0;
       sectionsHtml += `
         ${usedCurrencies.length > 1 ? `<div style="font-family:'Frank Ruhl Libre',serif;font-weight:700;font-size:14px;margin:18px 0 8px;color:#1a3d2b">${cur.label}</div>` : ''}
@@ -1133,13 +1214,14 @@ async function exportClientPdf(){
           ${hasCredit ? `<div class="p-sbox"><div class="n" style="color:#a3832b">${fmt(t.credit, cur.code)}</div><div class="l">סה"כ זיכויים</div></div>` : ''}
           <div class="p-sbox"><div class="n" style="color:#16281f">${fmt(t.balance, cur.code)}</div><div class="l">יתרה לתשלום</div></div>
         </div>
-        <table>
-          <thead><tr><th>תאריך</th><th>תיאור</th><th>כמות</th><th>מחיר יח'</th><th>סה"כ</th><th>יתרה</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:#999">אין רשומות</td></tr>'}${totalRow}</tbody>
-        </table>`;
+        ${tablesHtml}`;
     });
   }
 
+  await renderPdfFile(c, 'דו"ח יתרת חוב', sectionsHtml, `חוב_${c.name.replace(/[^\wא-ת\d]+/g, '_')}_${today()}.pdf`);
+}
+
+async function renderPdfFile(c, docTitle, bodyHtml, filename){
   const el = document.getElementById('pdf-render');
   el.innerHTML = `
     <div class="p-head">
@@ -1148,13 +1230,13 @@ async function exportClientPdf(){
         <div class="p-co-sub">ח.פ. 516151610 · כפר חב"ד · 03-9606741</div>
       </div>
       <div>
-        <div class="p-doc-title">דו"ח יתרת חוב</div>
+        <div class="p-doc-title">${docTitle}</div>
         <div class="p-doc-date">הופק בתאריך ${heDate(today())}</div>
       </div>
     </div>
     <div class="p-client">${escapeHtml(c.name)}</div>
     <div class="p-client-sub">${c.phone ? escapeHtml(c.phone) : ''}</div>
-    ${sectionsHtml}
+    ${bodyHtml}
     <div class="p-foot">מסמך זה הופק אוטומטית ממערכת מעקב חובות לקוחות · אתרוגי לוריא בע"מ</div>
   `;
 
@@ -1167,8 +1249,72 @@ async function exportClientPdf(){
   const imgWidth = pageWidth - 20;
   const imgHeight = (canvas.height * imgWidth) / canvas.width;
   pdf.addImage(imgData, 'JPEG', 10, 10, imgWidth, imgHeight);
+  pdf.save(filename);
+}
+
+/* Per-shipment documents */
+let shipmentKeys = [];
+const NO_SHIPMENT = 'ללא שיוך למשלוח';
+
+function clientShipmentGroups(clientId){
+  const debts = clientEntriesSorted(clientId).filter(e => e.type === 'debt');
+  const groups = [];
+  const idx = {};
+  debts.forEach(e => {
+    const key = e.shipment || '';
+    if(!(key in idx)){ idx[key] = groups.length; groups.push({ key, items: [] }); }
+    groups[idx[key]].items.push(e);
+  });
+  return groups;
+}
+
+function openShipments(){
+  const groups = clientShipmentGroups(currentClientId);
+  if(groups.length === 0 || (groups.length === 1 && groups[0].key === '')){
+    alert('לא הוגדרו משלוחים ללקוח זה. כשמוסיפים חוב אפשר למלא את השדה "משלוח / קבוצה".');
+    return;
+  }
+  shipmentKeys = groups.map(g => g.key);
+  document.getElementById('shipments-list').innerHTML = groups.map((g, i) => {
+    const byCur = {};
+    g.items.forEach(e => { const k = e.currency || 'ILS'; byCur[k] = (byCur[k] || 0) + Number(e.amount); });
+    const totals = CURRENCIES.filter(c => byCur[c.code] !== undefined).map(c => fmt(byCur[c.code], c.code)).join(' · ');
+    return `<div class="catalog-row">
+      <div><div>📦 ${escapeHtml(g.key || NO_SHIPMENT)}</div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.45)">${g.items.length} שורות · ${totals}</div></div>
+      <button class="btn btn-gold btn-sm" onclick="exportShipmentPdf(${i})">📄 PDF</button>
+    </div>`;
+  }).join('');
+  openModal('overlay-shipments');
+}
+
+async function exportShipmentPdf(i){
+  const c = state.clients.find(x => x.id === currentClientId);
+  const key = shipmentKeys[i];
+  if(!c || key === undefined) return;
+  const items = clientShipmentGroups(c.id).find(g => g.key === key);
+  if(!items) return;
+  const label = key || NO_SHIPMENT;
+  let body = `<div style="font-family:'Frank Ruhl Libre',serif;font-weight:700;font-size:16px;margin:4px 0 10px;color:#1a3d2b">📦 ${escapeHtml(label)}</div>`;
+  CURRENCIES.forEach(cur => {
+    const rowsE = items.items.filter(e => (e.currency || 'ILS') === cur.code);
+    if(rowsE.length === 0) return;
+    const subtotal = rowsE.reduce((s, e) => s + Number(e.amount), 0);
+    const rows = rowsE.map(e => {
+      const qtyCell = (e.qty !== undefined && e.qty !== null) ? e.qty : '—';
+      const priceCell = (e.unitPrice !== undefined && e.unitPrice !== null) ? fmt(e.unitPrice, cur.code) : '—';
+      return `<tr><td>${heDate(e.date)}</td><td>${escapeHtml(e.description || entryLabel(e))}</td><td>${qtyCell}</td><td>${priceCell}</td><td>${fmt(e.amount, cur.code)}</td></tr>`;
+    }).join('');
+    body += `
+      ${CURRENCIES.filter(x => items.items.some(e => (e.currency || 'ILS') === x.code)).length > 1 ? `<div style="font-weight:700;font-size:13px;margin:14px 0 6px;color:#1a3d2b">${cur.label}</div>` : ''}
+      <table>
+        <thead><tr><th>תאריך</th><th>תיאור</th><th>כמות</th><th>מחיר יח'</th><th>סה"כ</th></tr></thead>
+        <tbody>${rows}<tr><td colspan="4" style="font-weight:700">סה"כ למשלוח</td><td style="font-weight:700">${fmt(subtotal, cur.code)}</td></tr></tbody>
+      </table>`;
+  });
   const safeName = c.name.replace(/[^\wא-ת\d]+/g, '_');
-  pdf.save(`חוב_${safeName}_${today()}.pdf`);
+  const safeLabel = label.replace(/[^\wא-ת\d]+/g, '_');
+  await renderPdfFile(c, 'דו"ח משלוח', body, `משלוח_${safeLabel}_${safeName}_${today()}.pdf`);
 }
 
 renderAll();
