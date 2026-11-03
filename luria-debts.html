@@ -222,6 +222,9 @@ body::before {
   font-size: 12px;
 }
 .pl-name-custom { grid-column: 1 / -1; margin-top: -4px; }
+.pl-orig-row { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; font-size: 11px; color: rgba(255,255,255,0.5); margin-top: -4px; }
+.pl-orig-row input { width: 100px; flex: none; }
+.pl-disc { color: var(--gold-light); font-weight: 700; }
 .pl-subtotal { font-family: 'Frank Ruhl Libre', serif; font-size: 12px; font-weight: 700; color: var(--gold-light); text-align: center; }
 .pl-del { background: none; border: none; color: rgba(255,255,255,0.35); cursor: pointer; font-size: 15px; }
 .product-total-row {
@@ -277,8 +280,10 @@ body::before {
 #pdf-render table { width: 100%; border-collapse: collapse; font-size: 12px; }
 #pdf-render th { text-align: right; background: #1a3d2b; color: #fff; padding: 9px 10px; font-weight: 500; }
 #pdf-render td { padding: 8px 10px; border-bottom: 1px solid #e7e2d5; }
-#pdf-render td:nth-child(3), #pdf-render td:nth-child(4), #pdf-render td:nth-child(5), #pdf-render td:nth-child(6) { white-space: nowrap; }
-#pdf-render th:nth-child(3), #pdf-render th:nth-child(4), #pdf-render th:nth-child(5), #pdf-render th:nth-child(6) { white-space: nowrap; }
+#pdf-render td:nth-child(3), #pdf-render td:nth-child(4), #pdf-render td:nth-child(5), #pdf-render td:nth-child(6), #pdf-render td:nth-child(7), #pdf-render td:nth-child(8) { white-space: nowrap; }
+#pdf-render table.wide { font-size: 11px; }
+#pdf-render table.wide th, #pdf-render table.wide td { padding: 8px 5px; }
+#pdf-render th:nth-child(3), #pdf-render th:nth-child(4), #pdf-render th:nth-child(5), #pdf-render th:nth-child(6), #pdf-render th:nth-child(7), #pdf-render th:nth-child(8) { white-space: nowrap; }
 #pdf-render tr:last-child td { font-weight: 700; border-top: 2px solid #1a3d2b; border-bottom:none; }
 #pdf-render .p-foot { margin-top: 22px; font-size: 10px; color: #999; text-align: center; }
 </style>
@@ -403,7 +408,8 @@ body::before {
       </div>
 
       <div id="debt-simple-fields">
-        <div class="field"><label>סכום</label><input type="number" inputmode="decimal" id="nd-amount" placeholder="0"></div>
+        <div class="field"><label>סכום (אחרי הנחה, אם יש)</label><input type="number" inputmode="decimal" id="nd-amount" placeholder="0"></div>
+        <div class="field"><label>סכום מקורי לפני הנחה (לא חובה)</label><input type="number" inputmode="decimal" id="nd-orig" placeholder="—"></div>
         <div class="field"><label>תיאור</label><input id="nd-desc" placeholder="לדוגמה: 4 מינים"></div>
       </div>
 
@@ -552,14 +558,18 @@ function clientTotalsByCurrency(id){
   const map = {};
   es.forEach(e => {
     const code = e.currency || 'ILS';
-    if(!map[code]) map[code] = { debt: 0, paid: 0, credit: 0 };
-    if(e.type === 'debt') map[code].debt += Number(e.amount);
+    if(!map[code]) map[code] = { debt: 0, paid: 0, credit: 0, origDebt: 0 };
+    if(e.type === 'debt'){ map[code].debt += Number(e.amount); map[code].origDebt += entryOrig(e); }
     else if(e.type === 'credit') map[code].credit += Number(e.amount);
     else map[code].paid += Number(e.amount);
   });
   Object.keys(map).forEach(code => { map[code].balance = map[code].debt - map[code].paid - map[code].credit; });
   return map;
 }
+
+function entryOrig(e){ return (e.type === 'debt' && e.origAmount != null) ? Number(e.origAmount) : Number(e.amount); }
+function entryOrigUnit(e){ return e.origPrice != null ? e.origPrice : e.unitPrice; }
+function isDisc(e){ return e.type === 'debt' && entryOrig(e) - Number(e.amount) > 1e-9; }
 
 function entryLabel(e){
   if(e.type === 'debt') return 'חוב';
@@ -686,6 +696,7 @@ function openDetail(id){
   document.getElementById('nd-amount').value = '';
   document.getElementById('nd-desc').value = '';
   document.getElementById('nd-shipment').value = '';
+  document.getElementById('nd-orig').value = '';
   document.getElementById('nd-currency').value = 'ILS';
   document.getElementById('np-amount').value = '';
   document.getElementById('np-desc').value = '';
@@ -732,7 +743,7 @@ function renderDetail(){
       return `
       ${usedCurrencies.length > 1 ? `<div style="font-size:11px;color:rgba(255,255,255,0.45);margin:${i>0?'12px':'0'} 0 5px 2px">${cur.label}</div>` : ''}
       <div class="balance-box" ${hasCredit ? 'style="grid-template-columns:1fr 1fr 1fr 1fr;"' : ''}>
-        <div class="balance-item"><div class="n" style="color:var(--danger)">${fmt(t.debt, cur.code)}</div><div class="l">חוב מקורי</div></div>
+        <div class="balance-item"><div class="n" style="color:var(--danger)">${fmt(t.debt, cur.code)}</div><div class="l">${t.origDebt - t.debt > 1e-9 ? 'חוב אחרי הנחה' : 'חוב מקורי'}</div></div>
         <div class="balance-item"><div class="n" style="color:var(--light)">${fmt(t.paid, cur.code)}</div><div class="l">שולם</div></div>
         ${hasCredit ? `<div class="balance-item"><div class="n" style="color:var(--gold-light)">${fmt(t.credit, cur.code)}</div><div class="l">זיכויים</div></div>` : ''}
         <div class="balance-item"><div class="n" style="color:${balColor}">${fmt(t.balance, cur.code)}</div><div class="l">יתרה</div></div>
@@ -759,7 +770,7 @@ function renderDetail(){
         </div>
         <div class="entry-left">
           <div class="entry-desc">${escapeHtml(e.description || entryLabel(e))}</div>
-          <div class="entry-date">${heDate(e.date)}${e.shipment ? ' · 📦 ' + escapeHtml(e.shipment) : ''}</div>
+          <div class="entry-date">${heDate(e.date)}${e.shipment ? ' · 📦 ' + escapeHtml(e.shipment) : ''}${isDisc(e) ? ' · מקורי ' + fmt(entryOrig(e), e.currency || 'ILS') : ''}</div>
         </div>
       </div>
       <div class="entry-amt ${e.type}">
@@ -813,6 +824,7 @@ function addProductLine(scope){
     <input class="pl-price" type="number" value="0" min="0" oninput="recalcProductLine('${rowId}')" placeholder="מחיר ליח'">
     <div class="pl-subtotal" id="sub-${rowId}">₪0</div>
     <button type="button" class="pl-del" onclick="removeProductLine('${rowId}')">✕</button>
+    ${scope === 'debt' ? `<div class="pl-orig-row"><span>מחיר מקורי לפני הנחה (לא חובה):</span><input class="pl-orig" type="number" min="0" step="any" inputmode="decimal" placeholder="—" oninput="recalcProductLine('${rowId}')"><span class="pl-disc" id="disc-${rowId}"></span></div>` : ''}
     <div class="pl-hint" id="hint-${rowId}" style="grid-column:1/-1; font-size:10px; color:rgba(255,255,255,0.35); margin-top:-4px;"></div>
     <input class="pl-name-custom" placeholder="שם המוצר החדש" style="display:${state.products.length?'none':'block'}" oninput="recalcProductTotal('${scope}')">
   `;
@@ -863,6 +875,12 @@ function recalcProductLine(rowId){
   const price = parseFloat(row.querySelector('.pl-price').value) || 0;
   const currency = document.getElementById(scope === 'credit' ? 'nc-currency' : 'nd-currency').value;
   document.getElementById('sub-' + rowId).textContent = fmt(qty * price, currency);
+  const origEl = row.querySelector('.pl-orig');
+  const discEl = document.getElementById('disc-' + rowId);
+  if(origEl && discEl){
+    const orig = parseFloat(origEl.value) || 0;
+    discEl.textContent = (orig > price && qty > 0) ? 'הנחה: ' + fmt(qty * (orig - price), currency) : '';
+  }
   recalcProductTotal(scope);
 }
 
@@ -870,13 +888,18 @@ function recalcProductTotal(scope){
   scope = scope || 'debt';
   const currency = document.getElementById(scope === 'credit' ? 'nc-currency' : 'nd-currency').value;
   const containerId = scope === 'credit' ? 'credit-product-lines' : 'product-lines';
-  let total = 0;
+  let total = 0, origTotal = 0;
   document.querySelectorAll(`#${containerId} .product-line`).forEach(row => {
     const qty = parseFloat(row.querySelector('.pl-qty').value) || 0;
     const price = parseFloat(row.querySelector('.pl-price').value) || 0;
+    const origEl = row.querySelector('.pl-orig');
+    const orig = origEl ? (parseFloat(origEl.value) || 0) : 0;
     total += qty * price;
+    origTotal += qty * (orig > price ? orig : price);
   });
-  document.getElementById(scope === 'credit' ? 'credit-total-display' : 'product-total-display').textContent = fmt(total, currency);
+  const hasDisc = origTotal - total > 1e-9;
+  document.getElementById(scope === 'credit' ? 'credit-total-display' : 'product-total-display').textContent =
+    fmt(total, currency) + (hasDisc ? ' (במקום ' + fmt(origTotal, currency) + ')' : '');
 }
 
 function recalcAllProductLines(scope){
@@ -901,6 +924,8 @@ function addDebtFromProducts(){
     const sel = row.querySelector('.pl-product');
     const qty = parseFloat(row.querySelector('.pl-qty').value) || 0;
     const price = parseFloat(row.querySelector('.pl-price').value) || 0;
+    const origInput = row.querySelector('.pl-orig');
+    const origPrice = origInput ? (parseFloat(origInput.value) || 0) : 0;
     let name, productId;
     if(sel.value === '__custom__'){
       name = row.querySelector('.pl-name-custom').value.trim();
@@ -919,7 +944,9 @@ function addDebtFromProducts(){
     if(!name || qty <= 0) return;
     addedAny = true;
     const description = `${qty} יח' ${name}`;
-    state.entries.push({ id: uid(), clientId: currentClientId, type: 'debt', amount: qty * price, date, description, currency, qty, unitPrice: price, shipment, order: ++state.seq });
+    const entry = { id: uid(), clientId: currentClientId, type: 'debt', amount: qty * price, date, description, currency, qty, unitPrice: price, shipment, order: ++state.seq };
+    if(origPrice > price){ entry.origPrice = origPrice; entry.origAmount = qty * origPrice; }
+    state.entries.push(entry);
     // Remember this as the price agreed with THIS client for THIS product — prices are dynamic per client.
     if(productId) setClientPrice(currentClientId, productId, price);
   });
@@ -938,9 +965,13 @@ function addDebt(){
   const description = document.getElementById('nd-desc').value.trim();
   const currency = document.getElementById('nd-currency').value;
   const shipment = document.getElementById('nd-shipment').value.trim();
-  state.entries.push({ id: uid(), clientId: currentClientId, type: 'debt', amount, date, description, currency, shipment, order: ++state.seq });
+  const origAmount = parseFloat(document.getElementById('nd-orig').value) || 0;
+  const entry = { id: uid(), clientId: currentClientId, type: 'debt', amount, date, description, currency, shipment, order: ++state.seq };
+  if(origAmount > amount) entry.origAmount = origAmount;
+  state.entries.push(entry);
   save();
   document.getElementById('nd-amount').value = '';
+  document.getElementById('nd-orig').value = '';
   document.getElementById('nd-desc').value = '';
   renderDetail(); renderAll();
 }
@@ -1102,6 +1133,33 @@ function unifyDates(){
 document.getElementById('search').addEventListener('input', renderClientList);
 
 /* PDF export */
+function pdfHead(disc, withBal){
+  const cols = disc
+    ? ['תאריך','תיאור','כמות','מחיר מקורי','מחיר אחרי הנחה','סה"כ מקורי','סה"כ אחרי הנחה']
+    : ['תאריך','תיאור','כמות',"מחיר יח'",'סה"כ'];
+  if(withBal) cols.push('יתרה');
+  return `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>`;
+}
+
+function pdfRow(e, cur, disc, running){
+  const isDebt = e.type === 'debt';
+  const sign = isDebt ? '+' : '−';
+  const qtyCell = (e.qty !== undefined && e.qty !== null) ? e.qty : '—';
+  const unit = (e.unitPrice !== undefined && e.unitPrice !== null) ? fmt(e.unitPrice, cur.code) : '—';
+  let cells = `<td>${heDate(e.date)}</td><td>${escapeHtml(e.description || entryLabel(e))}</td><td>${qtyCell}</td>`;
+  if(disc){
+    const ou = (e.unitPrice !== undefined && e.unitPrice !== null) ? fmt(entryOrigUnit(e), cur.code) : '—';
+    cells += `<td>${ou}</td><td>${unit}</td><td>${isDebt ? '+' + fmt(entryOrig(e), cur.code) : '—'}</td><td>${sign}${fmt(e.amount, cur.code)}</td>`;
+  } else {
+    cells += `<td>${unit}</td><td>${sign}${fmt(e.amount, cur.code)}</td>`;
+  }
+  if(running !== null) cells += `<td>${fmt(running, cur.code)}</td>`;
+  return `<tr>${cells}</tr>`;
+}
+
+function sumFinal(items){ return items.reduce((s, e) => s + Number(e.amount), 0); }
+function sumOrig(items){ return items.reduce((s, e) => s + entryOrig(e), 0); }
+
 async function exportClientPdf(){
   const c = state.clients.find(x => x.id === currentClientId);
   if(!c) return;
@@ -1118,7 +1176,7 @@ async function exportClientPdf(){
         <div class="p-sbox"><div class="n" style="color:#16281f">${fmt(0)}</div><div class="l">יתרה לתשלום</div></div>
       </div>
       <table>
-        <thead><tr><th>תאריך</th><th>תיאור</th><th>כמות</th><th>מחיר יח'</th><th>סה"כ</th><th>יתרה</th></tr></thead>
+        ${pdfHead(false, true)}
         <tbody><tr><td colspan="6" style="text-align:center;color:#999">אין רשומות</td></tr></tbody>
       </table>`;
   } else {
@@ -1127,6 +1185,8 @@ async function exportClientPdf(){
       const curEntries = entries.filter(e => (e.currency || 'ILS') === cur.code);
       const debtEntries = curEntries.filter(e => e.type === 'debt');
       const otherEntries = curEntries.filter(e => e.type !== 'debt');
+      const disc = debtEntries.some(isDisc);
+      const sf = sumFinal(debtEntries), so = sumOrig(debtEntries);
 
       // Group debt rows by shipment/batch, preserving the order each shipment first appears in.
       const groups = [];
@@ -1140,48 +1200,34 @@ async function exportClientPdf(){
 
       let tablesHtml = '';
       if(!useGrouping){
-        // No shipments in use: original flat layout with a running balance column across everything.
+        // No shipments in use: one flat table with a running balance column across everything.
         let running = 0;
         const rows = curEntries.map(e => {
           running += (e.type === 'debt' ? e.amount : -e.amount);
-          const qtyCell = (e.qty !== undefined && e.qty !== null) ? e.qty : '—';
-          const priceCell = (e.unitPrice !== undefined && e.unitPrice !== null) ? fmt(e.unitPrice, cur.code) : '—';
-          return `<tr>
-            <td>${heDate(e.date)}</td>
-            <td>${escapeHtml(e.description || entryLabel(e))}</td>
-            <td>${qtyCell}</td>
-            <td>${priceCell}</td>
-            <td>${e.type==='debt' ? '+' : '−'}${fmt(e.amount, cur.code)}</td>
-            <td>${fmt(running, cur.code)}</td>
-          </tr>`;
+          return pdfRow(e, cur, disc, running);
         }).join('');
-        const totalRow = `<tr><td colspan="5">יתרה לתשלום</td><td>${fmt(t.balance, cur.code)}</td></tr>`;
+        const totalRows = disc
+          ? `<tr><td colspan="5" style="font-weight:700">סה"כ חובות</td><td style="font-weight:700">+${fmt(so, cur.code)}</td><td style="font-weight:700">+${fmt(sf, cur.code)}</td><td></td></tr>
+             <tr><td colspan="7" style="font-weight:700">יתרה לתשלום</td><td style="font-weight:700">${fmt(t.balance, cur.code)}</td></tr>`
+          : `<tr><td colspan="5">יתרה לתשלום</td><td>${fmt(t.balance, cur.code)}</td></tr>`;
         tablesHtml = `
-          <table>
-            <thead><tr><th>תאריך</th><th>תיאור</th><th>כמות</th><th>מחיר יח'</th><th>סה"כ</th><th>יתרה</th></tr></thead>
-            <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:#999">אין רשומות</td></tr>'}${totalRow}</tbody>
+          <table class="${disc ? 'wide' : ''}">
+            ${pdfHead(disc, true)}
+            <tbody>${rows || `<tr><td colspan="${disc ? 8 : 6}" style="text-align:center;color:#999">אין רשומות</td></tr>`}${totalRows}</tbody>
           </table>`;
       } else {
         // Shipments in use: one itemized table per shipment with its own subtotal, then payments/credits, then the balance.
         tablesHtml = groups.map(g => {
           const label = g.key || 'ללא שיוך למשלוח';
-          const subtotal = g.items.reduce((s, e) => s + Number(e.amount), 0);
-          const rows = g.items.map(e => {
-            const qtyCell = (e.qty !== undefined && e.qty !== null) ? e.qty : '—';
-            const priceCell = (e.unitPrice !== undefined && e.unitPrice !== null) ? fmt(e.unitPrice, cur.code) : '—';
-            return `<tr>
-              <td>${heDate(e.date)}</td>
-              <td>${escapeHtml(e.description || entryLabel(e))}</td>
-              <td>${qtyCell}</td>
-              <td>${priceCell}</td>
-              <td>+${fmt(e.amount, cur.code)}</td>
-            </tr>`;
-          }).join('');
+          const rows = g.items.map(e => pdfRow(e, cur, disc, null)).join('');
+          const subRow = disc
+            ? `<tr><td colspan="5" style="font-weight:700">סה"כ למשלוח</td><td style="font-weight:700">${fmt(sumOrig(g.items), cur.code)}</td><td style="font-weight:700">${fmt(sumFinal(g.items), cur.code)}</td></tr>`
+            : `<tr><td colspan="4">סה"כ למשלוח</td><td>${fmt(sumFinal(g.items), cur.code)}</td></tr>`;
           return `
             <div style="font-family:'Heebo';font-weight:700;font-size:12px;margin:14px 0 6px;color:#1a3d2b">📦 ${escapeHtml(label)}</div>
-            <table>
-              <thead><tr><th>תאריך</th><th>תיאור</th><th>כמות</th><th>מחיר יח'</th><th>סה"כ</th></tr></thead>
-              <tbody>${rows}<tr><td colspan="4">סה"כ למשלוח</td><td>${fmt(subtotal, cur.code)}</td></tr></tbody>
+            <table class="${disc ? 'wide' : ''}">
+              ${pdfHead(disc, false)}
+              <tbody>${rows}${subRow}</tbody>
             </table>`;
         }).join('');
 
@@ -1201,7 +1247,11 @@ async function exportClientPdf(){
 
         tablesHtml += `
           <table style="margin-top:10px">
-            <tbody><tr><td style="font-weight:700">יתרה לתשלום</td><td style="font-weight:700">${fmt(t.balance, cur.code)}</td></tr></tbody>
+            <tbody>
+              ${disc ? `<tr><td>סה"כ חובות לפני הנחה</td><td>${fmt(so, cur.code)}</td></tr>
+              <tr><td>סה"כ חובות אחרי הנחה</td><td>${fmt(sf, cur.code)}</td></tr>` : ''}
+              <tr><td style="font-weight:700">יתרה לתשלום</td><td style="font-weight:700">${fmt(t.balance, cur.code)}</td></tr>
+            </tbody>
           </table>`;
       }
 
@@ -1209,7 +1259,7 @@ async function exportClientPdf(){
       sectionsHtml += `
         ${usedCurrencies.length > 1 ? `<div style="font-family:'Frank Ruhl Libre',serif;font-weight:700;font-size:14px;margin:18px 0 8px;color:#1a3d2b">${cur.label}</div>` : ''}
         <div class="p-summary" ${hasCredit ? 'style="grid-template-columns:1fr 1fr 1fr 1fr;"' : ''}>
-          <div class="p-sbox"><div class="n" style="color:#c0392b">${fmt(t.debt, cur.code)}</div><div class="l">סה"כ חוב מקורי</div></div>
+          <div class="p-sbox"><div class="n" style="color:#c0392b">${fmt(t.debt, cur.code)}</div><div class="l">${disc ? 'סה"כ חוב אחרי הנחה' : 'סה"כ חוב מקורי'}</div></div>
           <div class="p-sbox"><div class="n" style="color:#2d6a4f">${fmt(t.paid, cur.code)}</div><div class="l">סה"כ שולם</div></div>
           ${hasCredit ? `<div class="p-sbox"><div class="n" style="color:#a3832b">${fmt(t.credit, cur.code)}</div><div class="l">סה"כ זיכויים</div></div>` : ''}
           <div class="p-sbox"><div class="n" style="color:#16281f">${fmt(t.balance, cur.code)}</div><div class="l">יתרה לתשלום</div></div>
@@ -1299,17 +1349,16 @@ async function exportShipmentPdf(i){
   CURRENCIES.forEach(cur => {
     const rowsE = items.items.filter(e => (e.currency || 'ILS') === cur.code);
     if(rowsE.length === 0) return;
-    const subtotal = rowsE.reduce((s, e) => s + Number(e.amount), 0);
-    const rows = rowsE.map(e => {
-      const qtyCell = (e.qty !== undefined && e.qty !== null) ? e.qty : '—';
-      const priceCell = (e.unitPrice !== undefined && e.unitPrice !== null) ? fmt(e.unitPrice, cur.code) : '—';
-      return `<tr><td>${heDate(e.date)}</td><td>${escapeHtml(e.description || entryLabel(e))}</td><td>${qtyCell}</td><td>${priceCell}</td><td>${fmt(e.amount, cur.code)}</td></tr>`;
-    }).join('');
+    const disc = rowsE.some(isDisc);
+    const rows = rowsE.map(e => pdfRow(e, cur, disc, null)).join('');
+    const subRow = disc
+      ? `<tr><td colspan="5" style="font-weight:700">סה"כ למשלוח</td><td style="font-weight:700">${fmt(sumOrig(rowsE), cur.code)}</td><td style="font-weight:700">${fmt(sumFinal(rowsE), cur.code)}</td></tr>`
+      : `<tr><td colspan="4" style="font-weight:700">סה"כ למשלוח</td><td style="font-weight:700">${fmt(sumFinal(rowsE), cur.code)}</td></tr>`;
     body += `
       ${CURRENCIES.filter(x => items.items.some(e => (e.currency || 'ILS') === x.code)).length > 1 ? `<div style="font-weight:700;font-size:13px;margin:14px 0 6px;color:#1a3d2b">${cur.label}</div>` : ''}
-      <table>
-        <thead><tr><th>תאריך</th><th>תיאור</th><th>כמות</th><th>מחיר יח'</th><th>סה"כ</th></tr></thead>
-        <tbody>${rows}<tr><td colspan="4" style="font-weight:700">סה"כ למשלוח</td><td style="font-weight:700">${fmt(subtotal, cur.code)}</td></tr></tbody>
+      <table class="${disc ? 'wide' : ''}">
+        ${pdfHead(disc, false)}
+        <tbody>${rows}${subRow}</tbody>
       </table>`;
   });
   const safeName = c.name.replace(/[^\wא-ת\d]+/g, '_');
