@@ -300,6 +300,18 @@ label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 5px
 ::-webkit-scrollbar-track { background: var(--deep); }
 ::-webkit-scrollbar-thumb { background: var(--mid); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--light); }
+/* Cloud */
+.cloud-bar { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; padding: 2px 0 8px; min-height: 30px; }
+.cloud-pill { font-family: inherit; font-size: 12px; padding: 5px 14px; border-radius: 20px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.06); color: var(--text); }
+.cloud-pill.ok { border-color: rgba(82,183,136,0.55); color: var(--pale); }
+.cloud-pill.warn { border-color: rgba(201,168,76,0.55); color: var(--gold2); }
+.cloud-pill.err { border-color: rgba(224,82,82,0.7); color: #ff8080; }
+.mig-steps .st { display: flex; gap: 10px; padding: 8px 0; font-size: 14px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.mig-steps .ic { width: 22px; text-align: center; }
+.mig-msg { margin-top: 14px; font-size: 13px; line-height: 1.7; color: rgba(255,255,255,0.85); }
+.mig-list { max-height: 200px; overflow: auto; font-size: 12px; line-height: 1.6; background: rgba(0,0,0,0.25); border-radius: 8px; padding: 8px 10px; margin-top: 8px; }
+.btn:disabled { opacity: 0.5; }
 </style>
 </head>
 <body>
@@ -309,6 +321,7 @@ label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 5px
     <div class="logo"><span>🍋</span> אתרוגי לוריא <small>/ יצוא לחו"ל</small></div>
     <a href="index.html" class="back-link">← חזרה לפורטל</a>
   </div>
+  <div class="cloud-bar" id="cloud-bar"></div>
   <nav>
     <button class="nav-btn active" onclick="showTab('dashboard')">🏠 לוח בקרה</button>
     <button class="nav-btn" onclick="showTab('customers')">👥 לקוחות</button>
@@ -616,7 +629,21 @@ let currentOrderCurrency = '₪';
 // ============================================================
 async function save(key, val) {
   try { localStorage.setItem('luria_exp_' + key, JSON.stringify(val)); } catch(e) { console.warn(e); }
+  if (window.cloudPush) window.cloudPush();
 }
+// Bridge for the cloud module: read the state, or replace it with a copy that came from the cloud.
+window.__app = {
+  ready: () => state._loaded,
+  get: () => state,
+  set: (s) => {
+    ['customers','orders','purchases','quotes','goodsReceipts','etrogTypes','suppliers'].forEach(k => {
+      if (s[k] === undefined) return;
+      state[k] = s[k];
+      try { localStorage.setItem('luria_exp_' + k, JSON.stringify(s[k])); } catch(e) { console.warn(e); }
+    });
+    if (state._loaded) renderAll();
+  }
+};
 async function load(key, def) {
   try {
     const raw = localStorage.getItem('luria_exp_' + key);
@@ -1904,7 +1931,8 @@ document.querySelectorAll('.overlay').forEach(ov => {
 // ============================================================
 // START
 // ============================================================
-init();
+// Start after the whole page (including the second script block) has loaded, so every render function exists.
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 </script>
 
 <!-- QUOTE MODAL -->
@@ -2397,5 +2425,366 @@ function openQuotePrintWindow(q) {
   win.document.close();
 }
 </script>
+<!-- ================= Cloud sync (Firebase) ================= -->
+<div class="overlay" id="overlay-cloud">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <div class="modal-title" id="cloud-title">☁️ ענן</div>
+      <button class="close-btn" onclick="closeModal('overlay-cloud')">✕</button>
+    </div>
+    <div id="cloud-body"></div>
+  </div>
+</div>
+
+<script type="module">
+/* ---- per-app settings ---- */
+const APP = {
+  ns: 'yitzua',                                   // Firestore: yitzua/main + sub-collections
+  modeKey: 'lyitzua_mode',
+  baseKey: 'lyitzua_cloud_baseline',
+  preKey:  'lyitzua_before_cloud',
+  backupName: 'luria-yitzua-backup',
+  cols: ['customers', 'orders', 'purchases', 'quotes', 'goodsReceipts'],
+  metaKeys: ['etrogTypes', 'suppliers'],          // plain lists, kept together in one document
+  colLabel: { customers: 'לקוח', orders: 'הזמנה', purchases: 'רכישה', quotes: 'הצעת מחיר', goodsReceipts: 'קבלת סחורה' },
+  summary: s => `<b>${s.customers.length}</b> לקוחות, <b>${s.orders.length}</b> הזמנות, <b>${s.quotes.length}</b> הצעות מחיר, <b>${s.purchases.length}</b> רכישות, <b>${s.goodsReceipts.length}</b> קבלות סחורה`,
+  describe: (col, v) => [v.name, v.num, v.customer, v.supplier, v.date].filter(Boolean).join(' · ')
+};
+/* -------------------------- */
+
+const FB_VER = '12.18.0';
+const OWNER = 'lurietrogim@gmail.com';
+const FB_CONFIG = {
+  apiKey: "AIzaSyDeEqKUSOUvlJadmkaJ_E9qx-BifkpnKg4",
+  authDomain: "luria-farm.firebaseapp.com",
+  projectId: "luria-farm",
+  storageBucket: "luria-farm.firebasestorage.app",
+  messagingSenderId: "977449076829",
+  appId: "1:977449076829:web:2ef92d7bdb57690066a5b4"
+};
+
+const A = window.__app;
+const bar = document.getElementById('cloud-bar');
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const isCloud = () => localStorage.getItem(APP.modeKey) === 'cloud';
+const whenLoaded = () => new Promise(res => { const t = () => A.ready() ? res() : setTimeout(t, 50); t(); });
+
+let F = null, auth = null, db = null, user = null;
+let ready = false, syncStarted = false, pending = 0, lastErr = null, authMsg = '';
+
+/* ---------- records ---------- */
+const clean = o => JSON.parse(JSON.stringify(o ?? null));
+function stable(v){
+  if(Array.isArray(v)) return '[' + v.map(stable).join(',') + ']';
+  if(v && typeof v === 'object') return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stable(v[k])).join(',') + '}';
+  return JSON.stringify(v);
+}
+function toRecords(s){
+  const r = {};
+  APP.cols.forEach(col => (s[col] || []).forEach(x => r[col + '/' + x.id] = clean(x)));
+  const m = {}; APP.metaKeys.forEach(k => m[k] = clean(s[k])); r.meta = m;
+  return r;
+}
+function fromRecords(r){
+  const s = {};
+  APP.cols.forEach(col => s[col] = []);
+  Object.keys(r).sort().forEach(k => { if(k !== 'meta'){ const i = k.indexOf('/'); s[k.slice(0, i)].push(r[k]); } });
+  const cur = A.get();
+  APP.metaKeys.forEach(k => s[k] = r.meta && r.meta[k] != null ? r.meta[k] : clean(cur[k]));
+  return s;
+}
+function diff(cur, base){
+  const ops = [];
+  for(const k in cur) if(base[k] !== stable(cur[k])) ops.push({ k, v: cur[k] });
+  for(const k in base) if(!(k in cur)) ops.push({ k, del: true });
+  return ops;
+}
+const loadBase = () => { try { return JSON.parse(localStorage.getItem(APP.baseKey)) || {}; } catch(e){ return {}; } };
+function saveBase(recs){ const b = {}; for(const k in recs) b[k] = stable(recs[k]); localStorage.setItem(APP.baseKey, JSON.stringify(b)); }
+function isEmptyLocal(s){ return APP.cols.every(c => !(s[c] || []).length) && !(s.suppliers || []).length; }
+function labelOf(k, v){
+  if(k === 'meta') return 'רשימות (סוגי אתרוג / ספקים)';
+  const col = k.slice(0, k.indexOf('/'));
+  return (APP.colLabel[col] || col) + ': ' + (APP.describe(col, v || {}) || k);
+}
+const goodId = id => typeof id === 'string' && id.length > 0 && id.length < 200 && !id.includes('/') && id !== '.' && id !== '..' && !/^__.*__$/.test(id);
+function newId(){ return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+// Every record must have its own valid id, otherwise two records could land on the same cloud document.
+function fixIds(s){
+  let fixed = 0;
+  APP.cols.forEach(col => {
+    const seen = new Set();
+    (s[col] || []).forEach(x => {
+      if(!x || typeof x !== 'object') return;
+      if(!goodId(x.id) || seen.has(x.id)){ x.id = newId(); fixed++; }
+      seen.add(x.id);
+    });
+  });
+  return fixed;
+}
+
+/* ---------- Firebase ---------- */
+async function ensureFb(){
+  if(F) return;
+  const base = `https://www.gstatic.com/firebasejs/${FB_VER}/`;
+  const [app, a, fs] = await Promise.all([import(base + 'firebase-app.js'), import(base + 'firebase-auth.js'), import(base + 'firebase-firestore.js')]);
+  const fbApp = app.getApps().length ? app.getApp() : app.initializeApp(FB_CONFIG);
+  auth = a.getAuth(fbApp);
+  try { db = fs.initializeFirestore(fbApp, { localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }) }); }
+  catch(e){ db = fs.getFirestore(fbApp); }
+  F = { ...a, ...fs };
+}
+const ref = k => k === 'meta' ? F.doc(db, APP.ns, 'main') : F.doc(db, APP.ns, 'main', k.slice(0, k.indexOf('/')), k.slice(k.indexOf('/') + 1));
+const isOwner = u => !!u && (u.email || '').toLowerCase() === OWNER;
+function signIn(){
+  const p = new F.GoogleAuthProvider();
+  p.setCustomParameters({ prompt: 'select_account', login_hint: OWNER });
+  return F.signInWithPopup(auth, p);
+}
+async function readServer(){
+  const r = {};
+  const m = await F.getDocFromServer(ref('meta'));
+  if(m.exists()) r.meta = m.data();
+  for(const col of APP.cols){
+    const qs = await F.getDocsFromServer(F.collection(db, APP.ns, 'main', col));
+    qs.forEach(d => r[col + '/' + d.id] = d.data());
+  }
+  return r;
+}
+function commitOps(ops){
+  for(let i = 0; i < ops.length; i += 400){
+    const b = F.writeBatch(db);
+    ops.slice(i, i + 400).forEach(o => o.del ? b.delete(ref(o.k)) : b.set(ref(o.k), o.v));
+    pending++; setStatus();
+    b.commit().then(() => { pending--; lastErr = null; setStatus(); })
+              .catch(err => { pending--; lastErr = err; console.error(err); setStatus(); });
+  }
+}
+window.cloudPush = function(){
+  if(!isCloud() || !ready) return;
+  const cur = toRecords(A.get());
+  const ops = diff(cur, loadBase());
+  if(!ops.length) return;
+  saveBase(cur);
+  commitOps(ops);
+};
+
+function startSync(){
+  if(syncStarted) return; syncStarted = true;
+  const snaps = { meta: null }; APP.cols.forEach(c => snaps[c] = null);
+  const onErr = err => { lastErr = err; console.error(err); setStatus(); };
+  F.onSnapshot(ref('meta'), s => snaps.meta = s, onErr);
+  APP.cols.forEach(col => F.onSnapshot(F.collection(db, APP.ns, 'main', col), s => snaps[col] = s, onErr));
+  let first = true;
+  F.onSnapshotsInSync(db, () => {
+    if(Object.values(snaps).some(x => x === null)) return;
+    const cloud = {};
+    if(snaps.meta.exists()) cloud.meta = snaps.meta.data();
+    APP.cols.forEach(col => snaps[col].forEach(d => cloud[col + '/' + d.id] = d.data()));
+    if(first){
+      first = false;
+      const localOps = diff(toRecords(A.get()), loadBase());
+      const merged = { ...cloud };
+      localOps.forEach(o => { if(o.del) delete merged[o.k]; else merged[o.k] = o.v; });
+      saveBase(cloud);
+      ready = true;
+      A.set(fromRecords(merged));
+      window.cloudPush();
+      setStatus();
+      return;
+    }
+    saveBase(cloud);
+    const next = fromRecords(cloud);
+    if(stable(toRecords(next)) !== stable(toRecords(A.get()))) A.set(next);
+    setStatus();
+  });
+  pending++; setStatus();
+  F.waitForPendingWrites(db).then(() => { pending--; setStatus(); }).catch(() => { pending--; setStatus(); });
+}
+async function bootCloud(){
+  setStatus();
+  await whenLoaded();
+  try { await ensureFb(); } catch(e){ lastErr = e; setStatus(); return; }
+  F.onAuthStateChanged(auth, async u => {
+    if(u && !isOwner(u)){ authMsg = `החשבון ${u.email} אינו מורשה. יש להתחבר עם ${OWNER}.`; await F.signOut(auth); return; }
+    user = u || null;
+    if(user){ authMsg = ''; startSync(); }
+    setStatus();
+  });
+}
+
+/* ---------- status bar ---------- */
+function setStatus(){
+  if(!isCloud()){
+    bar.innerHTML = `<button class="cloud-pill warn" onclick="cloudOpenMigrate()">☁️ העבר לענן</button>
+                     <button class="cloud-pill" onclick="cloudBackup()">💾 גיבוי לקובץ</button>`;
+    return;
+  }
+  let cls = 'ok', txt = '☁️ נשמר בענן';
+  if(lastErr && lastErr.code === 'permission-denied'){ cls = 'err'; txt = '⚠️ אין הרשאה – לחץ לפרטים'; }
+  else if(!F && lastErr){ cls = 'err'; txt = '📴 עובד במכשיר בלבד'; }
+  else if(!user){ cls = 'warn'; txt = auth ? '🔒 התחבר לענן' : '⏳ מתחבר…'; }
+  else if(!ready){ cls = 'warn'; txt = '⏳ טוען מהענן…'; }
+  else if(!navigator.onLine){ cls = 'warn'; txt = '📴 אין חיבור – נשמר במכשיר'; }
+  else if(lastErr){ cls = 'err'; txt = '⚠️ שגיאה בשמירה – לחץ לפרטים'; }
+  else if(pending > 0){ cls = 'warn'; txt = '⏳ שולח…'; }
+  bar.innerHTML = `<button class="cloud-pill ${cls}" onclick="cloudOpenPanel()">${txt}</button>`;
+}
+window.addEventListener('online', setStatus);
+window.addEventListener('offline', setStatus);
+
+/* ---------- backup ---------- */
+window.cloudBackup = function(tag){
+  const s = A.get(), out = {};
+  [...APP.cols, ...APP.metaKeys].forEach(k => out[k] = s[k]);
+  const blob = new Blob([JSON.stringify(out, null, 1)], { type: 'application/json' });
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${APP.backupName}_${tag || 'manual'}_${stamp}.json`;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+};
+
+/* ---------- panel (cloud mode) ---------- */
+window.cloudOpenPanel = function(){
+  $('cloud-title').textContent = '☁️ חיבור לענן';
+  const errTxt = lastErr ? `<div class="mig-list" style="color:#ff8080">${esc(lastErr.message || lastErr)}</div>` : '';
+  $('cloud-body').innerHTML = `
+    <div class="mig-msg">
+      ${user ? `מחובר כ־<b>${esc(user.email)}</b>.` : 'לא מחובר. הנתונים מוצגים מהעותק שבמכשיר, ושינויים יישלחו לענן אחרי ההתחברות.'}
+      ${authMsg ? `<div style="color:#ff8080;margin-top:6px">${esc(authMsg)}</div>` : ''}
+      ${errTxt}
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
+      ${user ? '' : `<button class="btn btn-gold" id="cl-login" ${auth ? '' : 'disabled'}>🔑 התחבר עם Google</button>`}
+      <button class="btn btn-outline" onclick="cloudBackup()">💾 הורד גיבוי לקובץ</button>
+      ${user ? `<button class="btn btn-outline" id="cl-logout">התנתק</button>` : ''}
+    </div>`;
+  openModal('overlay-cloud');
+  const li = $('cl-login'), lo = $('cl-logout');
+  if(li) li.onclick = () => signIn().then(() => closeModal('overlay-cloud')).catch(e => { authMsg = 'ההתחברות לא הושלמה: ' + (e.code || e.message); cloudOpenPanel(); });
+  if(lo) lo.onclick = async () => { if(confirm('להתנתק מהענן במכשיר הזה?')){ await F.signOut(auth); closeModal('overlay-cloud'); } };
+};
+
+/* ---------- migration (local → cloud) ---------- */
+const STEPS = ['התחברות לחשבון העסק', 'גיבוי לקובץ במכשיר', 'בדיקת מה שיש בענן', 'העלאת הנתונים', 'אימות מלא של כל רשומה', 'מעבר לעבודה מול הענן'];
+function drawSteps(cur, failed){
+  return `<div class="mig-steps">${STEPS.map((s, i) => {
+    const ic = i < cur ? '✅' : i === cur ? (failed ? '❌' : '⏳') : '⬜';
+    return `<div class="st"><span class="ic">${ic}</span><span>${s}</span></div>`;
+  }).join('')}</div>`;
+}
+function migView(cur, msg, opts = {}){
+  $('cloud-body').innerHTML = drawSteps(cur, opts.failed) + `<div class="mig-msg">${msg || ''}</div>` +
+    (opts.list && opts.list.length ? `<div class="mig-list">${opts.list.map(esc).join('<br>')}</div>` : '') + (opts.buttons || '');
+}
+window.cloudOpenMigrate = async function(){
+  $('cloud-title').textContent = '☁️ העברה לענן';
+  await whenLoaded();
+  $('cloud-body').innerHTML = `
+    <div class="mig-msg" style="margin-top:0">
+      התהליך בטוח ואפשר להריץ אותו שוב אם נקטע:
+      <br>• קודם יורד למכשיר <b>קובץ גיבוי</b> של כל הנתונים.
+      <br>• שום דבר שכבר קיים בענן לא נדרס.
+      <br>• אחרי ההעלאה כל רשומה נבדקת מול המקור. רק אם הכול זהה, המערכת עוברת לענן.
+      <br>• העותק במכשיר <b>לא נמחק</b>.
+      <br><br>במכשיר הזה: ${APP.summary(A.get())}.
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-gold" style="flex:1" id="mig-go" disabled>⏳ טוען…</button>
+      <button class="btn btn-outline" onclick="closeModal('overlay-cloud')">ביטול</button>
+    </div>`;
+  openModal('overlay-cloud');
+  ensureFb().then(() => { const b = $('mig-go'); if(!b) return; b.disabled = false; b.textContent = 'התחל'; b.onclick = runMigration; })
+            .catch(() => { const b = $('mig-go'); if(b) b.textContent = 'אין חיבור לאינטרנט'; });
+};
+
+async function runMigration(){
+  let step = 0, fixed = 0;
+  const fail = (msg, list) => migView(step, msg, { failed: true, list,
+    buttons: `<div style="display:flex;gap:10px;margin-top:16px"><button class="btn btn-gold" style="flex:1" onclick="cloudOpenMigrate()">נסה שוב</button><button class="btn btn-outline" onclick="closeModal('overlay-cloud')">סגור</button></div>` });
+  try {
+    migView(step, 'נפתח חלון התחברות של Google…');
+    let u = auth.currentUser;
+    if(!isOwner(u)){ if(u) await F.signOut(auth); u = (await signIn()).user; }
+    if(!isOwner(u)){ await F.signOut(auth); return fail(`החשבון ${u.email} אינו מורשה. יש להתחבר עם ${OWNER}.`); }
+    user = u; step = 1;
+
+    migView(step, 'מוריד קובץ גיבוי…');
+    if(!localStorage.getItem(APP.preKey)){ const s0 = A.get(), o = {}; [...APP.cols, ...APP.metaKeys].forEach(k => o[k] = s0[k]); localStorage.setItem(APP.preKey, JSON.stringify(o)); }
+    cloudBackup('before-cloud');
+    // Give any record without its own id a fresh one (after the backup, so the original is on file).
+    const s = clean(A.get());
+    fixed = fixIds(s);
+    if(fixed) A.set(s);
+    step = 2;
+
+    migView(step, 'בודק מה כבר קיים בענן…');
+    const local = toRecords(A.get());
+    let cloud;
+    try { cloud = await readServer(); } catch(e){ return fail('אין חיבור לענן כרגע (' + (e.code || e.message) + '). שום דבר לא השתנה, אפשר לנסות שוב.'); }
+
+    if(isEmptyLocal(A.get())){ step = 5; return finish(cloud, 0, 0); }
+
+    const toUpload = [], conflicts = [];
+    const expected = { ...local };
+    for(const k in local){
+      if(!(k in cloud)){ toUpload.push(k); continue; }
+      if(stable(cloud[k]) === stable(local[k])) continue;
+      if(k === 'meta'){
+        // lists: keep everything from both sides (nothing is lost)
+        const m = {};
+        APP.metaKeys.forEach(mk => {
+          const c = Array.isArray(cloud.meta[mk]) ? cloud.meta[mk] : [];
+          const l = Array.isArray(local.meta[mk]) ? local.meta[mk] : [];
+          m[mk] = [...c, ...l.filter(x => !c.some(y => stable(y) === stable(x)))];
+        });
+        expected.meta = m; toUpload.push(k); continue;
+      }
+      conflicts.push(labelOf(k, local[k]));
+    }
+    if(conflicts.length) return fail('בענן כבר יש גרסה אחרת של הרשומות הבאות. כדי לא לדרוס אף אחת מהן, ההעברה נעצרה ושום דבר לא השתנה:', conflicts);
+    step = 3;
+
+    for(let i = 0; i < toUpload.length; i += 400){
+      migView(step, `מעלה… ${Math.min(i + 400, toUpload.length)} מתוך ${toUpload.length}`);
+      const b = F.writeBatch(db);
+      toUpload.slice(i, i + 400).forEach(k => b.set(ref(k), expected[k]));
+      await b.commit();
+    }
+    step = 4;
+
+    migView(step, 'קורא את הכול בחזרה מהענן ומשווה רשומה אחרי רשומה…');
+    const after = await readServer();
+    const missing = Object.keys(expected).filter(k => !(k in after) || stable(after[k]) !== stable(expected[k]));
+    if(missing.length) return fail('הרשומות הבאות לא הגיעו לענן בצורה זהה. המערכת נשארת במצב מקומי:', missing.map(k => labelOf(k, expected[k])));
+    step = 5;
+    return finish(after, Object.keys(expected).length - 1, fixed);
+  } catch(e){
+    console.error(e);
+    return fail('התהליך נעצר: ' + (e.code || e.message) + '. המערכת נשארת במצב מקומי בדיוק כמו קודם.');
+  }
+}
+function finish(cloud, checked, fixed){
+  saveBase(cloud);
+  localStorage.setItem(APP.modeKey, 'cloud');
+  const st = fromRecords(cloud);
+  A.set(st);
+  startSync();
+  setStatus();
+  migView(6, `<b>ההעברה הושלמה.</b><br>
+    ${checked ? `${checked} רשומות נבדקו אחת־אחת ונמצאו זהות למקור.<br>` : 'הנתונים נטענו מהענן.<br>'}
+    ${fixed ? `${fixed} רשומות ישנות בלי מזהה קיבלו מזהה חדש (התוכן לא השתנה).<br>` : ''}
+    בענן עכשיו: ${APP.summary(st)}.<br>
+    מעכשיו כל שמירה נשלחת לענן. העותק במכשיר לא נמחק.<br>
+    כדאי לפתוח הזמנה או שתיים שאתה מכיר ולוודא שהכול נראה נכון.`,
+    { buttons: `<button class="btn btn-gold" style="width:100%;margin-top:16px" onclick="closeModal('overlay-cloud')">סגור</button>` });
+}
+
+if(isCloud()) bootCloud(); else setStatus();
+</script>
+
 </body>
 </html>
