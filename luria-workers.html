@@ -449,6 +449,10 @@ async function doUpload() {
       let info = {}, fileObj;
       try { const buf = await file.arrayBuffer(); if (!buf.byteLength) throw 0; fileObj = new File([buf], file.name, { type: file.type || (/\.pdf$/i.test(file.name) ? 'application/pdf' : 'image/jpeg') }); }
       catch (e) { throw new Error(`לא ניתן לקרוא את הקובץ "${file.name}" מהטלפון. אם בחרת אותו ישר מהדרייב או מהמייל — הורד אותו קודם לטלפון ובחר אותו מתיקיית ההורדות.`); }
+      if (useAi && !multi && /pdf/.test(fileObj.type) && ['auto', 'pay', 'hours'].includes(UP.cat)) {
+        const parts = await splitAndFile(fileObj, UP.cat, UP.wid, (t) => st.innerHTML = `<span class="spin"></span> ${pre}${t}`).catch(e => { console.warn(e); return null; });
+        if (parts) { log.push(...parts); continue; }
+      }
       if (useAi) { st.innerHTML = `<span class="spin"></span> ${pre}Claude קורא את ${esc(file.name)}…`; info = await AI.read(fileObj, UP.cat).catch(e => { console.warn(e); return { _err: e.message }; }); }
       const r = resolveDoc(info, UP.cat, multi ? null : UP.wid, !!multi);
       if (!r.cat) { st.innerHTML = `⚠️ ${pre}לא זוהה סוג המסמך ב-${esc(file.name)} — בחר סוג ידנית ולחץ שוב`; go.disabled = false; UP.files = UP.files.slice(n - 1); return; }
@@ -683,6 +687,7 @@ function drawEditDoc() {
   </div>
   <div class="note">כשמשנים סוג או עובד, הקובץ עובר גם בדרייב לתיקייה הנכונה.</div>
   <div class="row"><button class="btn" id="e_go" onclick="saveEditDoc()">💾 שמירה</button></div>
+  ${hasKey && !d.shared && /\.pdf$/i.test(d.fname || '') ? `<button class="btn ghost" style="width:100%;margin-top:10px" id="e_split" onclick="edSplit()">✂️ הקובץ כולל כמה חודשים — פצל לדפים נפרדים</button>` : ''}
   <div class="note" id="e_st"></div>`;
 }
 async function edReread() {
@@ -724,8 +729,95 @@ async function saveEditDoc() {
   } catch (e) { st.innerHTML = '❌ ' + esc(e.message); $('e_go').disabled = false; }
 }
 
+/* ---------- פיצול PDF רב-עמודי לפי חודש / עובד ---------- */
+async function loadPdfLib() {
+  if (window.PDFLib) return window.PDFLib;
+  const add = src => new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = src; sc.onload = ok; sc.onerror = no; document.head.appendChild(sc); });
+  try { await add('https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js'); } catch (e) { await add('https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js'); }
+  if (!window.PDFLib) throw new Error('לא נטען כלי הפיצול');
+  return window.PDFLib;
+}
+// מחזיר שורות סיכום אם פוצל, או null אם הקובץ הוא מסמך אחד
+async function splitAndFile(fileObj, chosenCat, chosenWid, status) {
+  const L = await loadPdfLib();
+  const buf = await fileObj.arrayBuffer();
+  const src = await L.PDFDocument.load(buf, { ignoreEncryption: true });
+  const n = src.getPageCount();
+  if (n < 2) return null;
+  status(`Claude קורא ${n} עמודים…`);
+  const pages = await AI.pages(fileObj, n);
+  // קיבוץ עמודים רצופים לאותו מסמך (חודש + עובד + סוג)
+  const groups = [];
+  for (let i = 0; i < n; i++) {
+    const pg = pages.find(x => +x.page === i + 1) || {};
+    const prev = groups[groups.length - 1];
+    const key = [pg.docType || '', pg.period || '', String(pg.workerName || '').toLowerCase().trim()].join('|');
+    const cont = prev && (pg.continued || (!pg.period && !pg.workerName) || prev.key === key);
+    if (cont) prev.idx.push(i); else groups.push({ key, idx: [i], info: { ...pg } });
+  }
+  if (groups.length < 2) return null;
+  const out = [];
+  let k = 0;
+  for (const g of groups) {
+    k++;
+    const info = g.info;
+    const r = resolveDoc(info, chosenCat, chosenWid, false);
+    if (!r.cat || !r.wid) throw new Error(`עמודים ${g.idx[0] + 1}-${g.idx[g.idx.length - 1] + 1}: לא זוהה ${!r.cat ? 'סוג המסמך' : 'העובד'}`);
+    const c = CAT[r.cat];
+    const period = c.period && /^\d{4}-\d{2}$/.test(info.period || '') ? info.period : '';
+    const exp = c.exp && /^\d{4}-\d{2}-\d{2}$/.test(info.expiry || '') ? info.expiry : '';
+    const owner = S.people[r.wid];
+    const title = docTitle(r.cat, period, exp);
+    const fname = label(owner) + ' - ' + title.replace(/\//g, '-') + '.pdf';
+    status(`שומר ${k}/${groups.length}: ${title}…`);
+    const doc = await L.PDFDocument.create();
+    (await doc.copyPages(src, g.idx)).forEach(pg => doc.addPage(pg));
+    const part = new File([await doc.save()], fname, { type: 'application/pdf' });
+    const up = await Drive.upload(part, fname, await Drive.workerFolder(owner, r.cat));
+    const d = { id: uid('d'), wid: r.wid, cat: r.cat, title, fname, fileId: up.id, link: up.webViewLink || ('https://drive.google.com/file/d/' + up.id + '/view'), date: today(), pages: g.idx.length };
+    if (period) d.period = period; if (exp) d.exp = exp;
+    if (info.hours) d.hours = info.hours; if (info.net) d.net = info.net;
+    await Cloud.put('docs', d.id, d);
+    await applyToWorker(r.wid, r.cat, info, exp);
+    out.push(`📄 עמ׳ ${g.idx[0] + 1}${g.idx.length > 1 ? '-' + (g.idx[g.idx.length - 1] + 1) : ''} → ${c.ic} ${title} · ${esc(label(owner))}`);
+  }
+  return out;
+}
+async function edSplit() {
+  const d = S.docs[ED.id], st = $('e_st'); $('e_split').disabled = true;
+  try {
+    st.innerHTML = '<span class="spin"></span> מוריד את הקובץ מהדרייב…';
+    const file = await Drive.download(d.fileId, d.fname || 'doc.pdf');
+    const parts = await splitAndFile(file, 'auto', d.wid, t => st.innerHTML = '<span class="spin"></span> ' + t);
+    if (!parts) { st.innerHTML = 'ℹ️ Claude לא מצא בקובץ כמה מסמכים נפרדים — לא פוצל'; $('e_split').disabled = false; return; }
+    await Cloud.del('docs', d.id);
+    st.innerHTML = '✅ פוצל ל-' + parts.length + ' מסמכים:<br>' + parts.join('<br>') + '<br><span style="opacity:.7">הקובץ המקורי נשאר בדרייב.</span>';
+    $('e_go').textContent = 'סגור'; $('e_go').onclick = () => { closeMd(); render(); };
+    render();
+  } catch (e) { console.error(e); st.innerHTML = '❌ ' + esc(e.message); $('e_split').disabled = false; }
+}
+
 /* ---------- Claude ---------- */
 const AI = {
+  async pages(file, n) {
+    const key = localStorage.getItem('luria_api_key'); if (!key) throw new Error('חסר מפתח Claude');
+    const b64 = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = no; r.readAsDataURL(file); });
+    const names = active().map(p => p.name + (p.nick ? ' (' + p.nick + ')' : '')).join(' | ');
+    const prompt = `ב-PDF הזה ${n} עמודים, ויכול להיות שהוא כולל כמה מסמכים נפרדים של עובדים זרים (למשל תלוש שכר לכל חודש, או דוח שעות לכל חודש).
+החזר JSON בלבד — מערך עם אובייקט לכל עמוד:
+[{"page":1,"docType":"pay | hours | ins | visa | pass | cont | other","period":"החודש שהעמוד מתייחס אליו YYYY-MM או null","workerName":"שם העובד בעמוד או null","continued":true אם העמוד הוא המשך של המסמך מהעמוד הקודם אחרת false,"net":"שכר נטו אם זה תלוש או null","hours":"סך שעות אם זה דוח שעות או null","expiry":"תאריך תפוגה YYYY-MM-DD אם רלוונטי או null"}]
+העובדים הקיימים: ${names}`;
+    let last = '';
+    for (const model of ['claude-sonnet-5-5', 'claude-sonnet-5', 'claude-sonnet-4-5']) {
+      const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model, max_tokens: 4000, messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }, { type: 'text', text: prompt }] }] }) });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { const t = (j.content || []).map(x => x.text || '').join(''); const m = t.match(/\[[\s\S]*\]/); return m ? JSON.parse(m[0]) : []; }
+      last = (j.error && j.error.message) || r.status;
+      if (!(r.status === 404 || (r.status === 400 && /model/i.test(last)))) break;
+    }
+    throw new Error('Claude: ' + last);
+  },
   async readList(file) {
     const key = localStorage.getItem('luria_api_key'); if (!key) throw new Error('חסר מפתח Claude');
     const b64 = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = no; r.readAsDataURL(file); });
