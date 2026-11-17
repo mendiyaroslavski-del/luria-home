@@ -244,7 +244,10 @@ const FIELDS = [
   ['passNo', 'מספר דרכון', 'text', 'ltr'], ['passExp', 'תוקף דרכון', 'date'],
   ['visaNo', 'מספר ויזה / אשרה', 'text', 'ltr'], ['visaExp', 'תוקף ויזה', 'date'],
   ['insCo', 'חברת ביטוח', 'text'], ['insNo', 'מספר פוליסה', 'text', 'ltr'],
-  ['insExp', 'תוקף ביטוח', 'date'], ['status', 'סטטוס', 'select'],
+  ['insExp', 'תוקף ביטוח', 'date'], ['bankName', 'בנק', 'text'],
+  ['bankBranch', 'מספר סניף', 'text', 'ltr'], ['bankAcc', 'מספר חשבון', 'text', 'ltr'],
+  ['bankOpen', 'תאריך פתיחת חשבון', 'date'],
+  ['status', 'סטטוס', 'select'],
   ['end', 'תאריך סיום (אם עזב)', 'date'], ['notes', 'הערות', 'textarea']
 ];
 const S = { people: {}, docs: {}, meta: {} };   // מתמלא מהענן
@@ -303,7 +306,7 @@ function render() {
   if (view.tab === 'month') body = monthHtml();
   else {
     const ps = allPeople();
-    body = `<div style="display:flex;gap:8px;margin-bottom:10px"><button class="btn" onclick="editWorker()">➕ עובד חדש</button><button class="btn sec" onclick="uploadDialog()">📤 העלאת מסמך</button></div>` +
+    body = `<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn" onclick="editWorker()">➕ עובד חדש</button><button class="btn sec" onclick="uploadDialog()">📤 העלאת מסמך</button><button class="btn ghost" onclick="importDialog()" title="אקסל / PDF עם רשימת עובדים">📥 ייבוא רשימה</button></div>` +
       (ps.length ? `<div class="grid">${ps.map(p => {
         const cnt = docsOf(p.id).length;
         return `<div class="wk" onclick="openWorker('${p.id}')" style="${p.status === 'left' ? 'opacity:.5' : ''}">
@@ -516,8 +519,147 @@ async function applyToWorker(wid, cat, info, exp) {
   // מסמך עדכני (התוקף הכי מאוחר) — מעדכן גם מספרים וחברה; מסמך ישן — רק משלים שדות ריקים
   if (cat === 'visa') { const cur = later('visaExp', exp); set('visaNo', info.docNumber, cur); }
   if (cat === 'pass') { const cur = later('passExp', exp); set('passNo', info.passportNo || info.docNumber, cur); set('birth', /^\d{4}-\d{2}-\d{2}$/.test(info.birthDate || '') ? info.birthDate : ''); set('name', info.workerName); }
+  if (cat === 'pay' || cat === 'cont') { set('bankName', info.bankName); set('bankBranch', info.bankBranch); set('bankAcc', info.bankAcc); }
   if (cat === 'ins') { const cur = later('insExp', exp); set('insCo', info.company, cur); set('insNo', info.docNumber, cur); }
   if (ch) await Cloud.put('people', wid, p);
+}
+
+/* ---------- ייבוא רשימת עובדים (אקסל / CSV / PDF) ---------- */
+const IMP_COLS = {
+  first: ['שם פרטי', 'first name', 'first'], last: ['שם משפחה', 'last name', 'surname', 'family'],
+  full: ['שם מלא', 'שם העובד', 'שם עובד', 'name', 'full name'],
+  passNo: ['מספר דרכון', 'דרכון', 'passport'], phone: ['טלפון', 'נייד', 'phone', 'mobile'],
+  bankName: ['בנק', 'bank'], bankBranch: ['סניף', 'branch'], bankAcc: ['מספר חשבון', 'חשבון', 'account'],
+  bankOpen: ['תאריך פתיחת חשבון', 'פתיחת חשבון'], birth: ['תאריך לידה', 'birth'],
+  visaNo: ['מספר ויזה', 'אשרה', 'visa'], visaExp: ['תוקף ויזה', 'תוקף אשרה'], start: ['תחילת עבודה', 'תאריך תחילת עבודה']
+};
+const IMP_LABEL = { passNo: 'דרכון', phone: 'טלפון', bankName: 'בנק', bankBranch: 'סניף', bankAcc: 'חשבון', bankOpen: 'פתיחת חשבון', birth: 'לידה', visaNo: 'ויזה', visaExp: 'תוקף ויזה', start: 'תחילת עבודה' };
+const MON = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6, JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12 };
+function impDate(v) {
+  if (v == null || v === '') return '';
+  if (typeof v === 'number' && v > 20000 && v < 80000) return new Date(Math.round((v - 25569) * 864e5)).toISOString().slice(0, 10);
+  v = String(v).trim();
+  let m = v.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return m[0];
+  m = v.match(/^(\d{1,2})[-\s/.]([A-Za-z]{3})[A-Za-z]*[-\s/.](\d{2,4})$/); if (m && MON[m[2].toUpperCase()]) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; return `${y}-${String(MON[m[2].toUpperCase()]).padStart(2, '0')}-${m[1].padStart(2, '0')}`; }
+  m = v.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})$/); if (m) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; }
+  return '';
+}
+// קורא xlsx בלי ספריות חיצוניות (zip + XML)
+async function readXlsx(buf) {
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  let eocd = -1; for (let i = u8.length - 22; i >= Math.max(0, u8.length - 70000); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('הקובץ אינו אקסל תקין');
+  const n = dv.getUint16(eocd + 10, true); let p = dv.getUint32(eocd + 16, true);
+  const files = {};
+  for (let i = 0; i < n; i++) {
+    const meth = dv.getUint16(p + 10, true), csz = dv.getUint32(p + 20, true), nl = dv.getUint16(p + 28, true), el = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), off = dv.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nl));
+    files[name] = { meth, csz, off }; p += 46 + nl + el + cl;
+  }
+  const get = async name => {
+    const f = files[name]; if (!f) return null;
+    const lnl = dv.getUint16(f.off + 26, true), lel = dv.getUint16(f.off + 28, true);
+    const data = u8.subarray(f.off + 30 + lnl + lel, f.off + 30 + lnl + lel + f.csz);
+    if (f.meth === 0) return new TextDecoder().decode(data);
+    const ds = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return await new Response(ds).text();
+  };
+  const X = t => new DOMParser().parseFromString(t, 'application/xml');
+  const ssT = await get('xl/sharedStrings.xml');
+  const ss = ssT ? [...X(ssT).getElementsByTagName('si')].map(si => [...si.getElementsByTagName('t')].map(t => t.textContent).join('')) : [];
+  const sheetName = Object.keys(files).filter(k => /^xl\/worksheets\/sheet\d+\.xml$/.test(k)).sort()[0];
+  const doc = X(await get(sheetName));
+  const rows = [];
+  for (const r of doc.getElementsByTagName('row')) {
+    const row = [];
+    for (const c of r.getElementsByTagName('c')) {
+      const ref = c.getAttribute('r') || ''; const col = ref.replace(/\d+/g, '').split('').reduce((a, ch) => a * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+      const t = c.getAttribute('t'); const vEl = c.getElementsByTagName('v')[0];
+      let v = t === 'inlineStr' ? [...c.getElementsByTagName('t')].map(x => x.textContent).join('') : vEl ? vEl.textContent : '';
+      if (t === 's') v = ss[+v] || ''; else if (t !== 'str' && t !== 'inlineStr' && v !== '' && !isNaN(v)) v = +v;
+      row[col < 0 ? row.length : col] = v;
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+function readCsv(text) { return text.split(/\r?\n/).filter(l => l.trim()).map(l => { const out = []; let cur = '', q = false; for (const ch of l) { if (ch === '"') q = !q; else if ((ch === ',' || ch === ';' || ch === '\t') && !q) { out.push(cur); cur = ''; } else cur += ch; } out.push(cur); return out.map(x => x.trim()); }); }
+function rowsToRecords(rows) {
+  const hi = rows.findIndex(r => (r || []).filter(x => x != null && String(x).trim()).length >= 2 && (r || []).some(x => Object.values(IMP_COLS).flat().some(k => String(x || '').trim().toLowerCase() === k.toLowerCase())));
+  if (hi < 0) throw new Error('לא נמצאה שורת כותרות (שם פרטי / מספר דרכון / מספר חשבון…)');
+  const head = rows[hi].map(h => String(h || '').trim().toLowerCase());
+  const idx = {};
+  for (const [k, names] of Object.entries(IMP_COLS)) { for (const nm of names) { const i = head.findIndex(h => h === nm.toLowerCase()); if (i >= 0) { idx[k] = i; break; } } }
+  for (const [k, names] of Object.entries(IMP_COLS)) if (idx[k] == null) { const i = head.findIndex((h, j) => !Object.values(idx).includes(j) && names.some(nm => h.includes(nm.toLowerCase()))); if (i >= 0) idx[k] = i; }
+  return rows.slice(hi + 1).map(r => { const o = {}; for (const [k, i] of Object.entries(idx)) { const v = r[i]; if (v != null && String(v).trim() !== '') o[k] = v; } return o; }).filter(o => o.first || o.last || o.full || o.passNo);
+}
+function normRec(o) {
+  const r = {};
+  const name = (o.full || [o.first, o.last].filter(Boolean).join(' ')).toString().trim().replace(/\s+/g, ' ');
+  if (name) r.name = name.toUpperCase() === name || /[a-z]/i.test(name) ? name.toUpperCase() : name;
+  for (const k of ['passNo', 'phone', 'bankName', 'bankBranch', 'bankAcc', 'visaNo']) if (o[k] != null && String(o[k]).trim()) r[k] = String(o[k]).trim();
+  if (r.phone && /^5\d{8}$/.test(r.phone)) r.phone = '0' + r.phone;
+  for (const k of ['bankOpen', 'birth', 'visaExp', 'start']) { const d = impDate(o[k]); if (d) r[k] = d; }
+  return r;
+}
+let IMP = null;
+function importDialog() {
+  IMP = { recs: [] };
+  const hasKey = !!localStorage.getItem('luria_api_key');
+  $('md').innerHTML = `<h2>📥 ייבוא רשימת עובדים<button class="x" onclick="closeMd()">✕</button></h2>
+  <div class="note" style="margin-top:-6px">קובץ <b>אקסל</b> (xlsx / csv) נקרא ישירות${hasKey ? ', ו-<b>PDF או תמונה</b> נקראים עם Claude' : ''}. עובדים קיימים מזוהים לפי מספר דרכון או שם, ופרטים חסרים או שהשתנו מתעדכנים. עובד שלא קיים — נוסף.</div>
+  <div class="drop" style="margin-top:12px" onclick="this.querySelector('input').click()">
+    <input type="file" accept=".xlsx,.csv,${hasKey ? 'application/pdf,image/*,' : ''}text/csv" onchange="impRead(this.files[0])">
+    <div>📎 בחר קובץ</div></div>
+  <div id="i_st" class="note"></div><div id="i_prev"></div>`;
+  openMd();
+}
+async function impRead(file) {
+  if (!file) return;
+  const st = $('i_st');
+  try {
+    let recs;
+    const buf = await file.arrayBuffer().catch(() => { throw new Error('לא ניתן לקרוא את הקובץ — הורד אותו קודם לטלפון'); });
+    if (/\.xlsx$/i.test(file.name)) { st.innerHTML = '<span class="spin"></span> קורא אקסל…'; recs = rowsToRecords(await readXlsx(buf)); }
+    else if (/\.csv$/i.test(file.name) || file.type === 'text/csv') recs = rowsToRecords(readCsv(new TextDecoder().decode(buf)));
+    else {
+      st.innerHTML = '<span class="spin"></span> Claude קורא את הרשימה…';
+      const f = new File([buf], file.name, { type: file.type || 'application/pdf' });
+      recs = await AI.readList(f);
+    }
+    recs = recs.map(normRec).filter(r => r.name || r.passNo);
+    if (!recs.length) throw new Error('לא נמצאו עובדים בקובץ');
+    IMP.recs = recs.map(r => {
+      const pn = String(r.passNo || '').replace(/\s/g, '').toUpperCase();
+      let hit = pn && allPeople().find(p => String(p.passNo || '').replace(/\s/g, '').toUpperCase() === pn);
+      if (!hit && r.name) { const w = r.name.toLowerCase().split(' '); hit = allPeople().find(p => { const pw = String(p.name || '').toLowerCase().split(/\s+/); return w.length > 1 && w.every(x => pw.includes(x)); }); }
+      const ch = {};
+      for (const [k, v] of Object.entries(r)) if (k !== 'name' && (!hit || String(hit[k] || '') !== String(v))) ch[k] = v;
+      if (hit && !hit.name && r.name) ch.name = r.name;
+      return { r, hit: hit ? hit.id : null, ch, on: !hit || Object.keys(ch).length > 0 };
+    });
+    st.innerHTML = `נמצאו ${recs.length} עובדים בקובץ:`;
+    drawImp();
+  } catch (e) { console.error(e); st.innerHTML = '❌ ' + esc(e.message); }
+}
+function drawImp() {
+  const show = (k, v) => `${IMP_LABEL[k] || k}: <span dir="ltr" style="font-weight:700;color:#fff">${esc(k.endsWith('Open') || k === 'birth' || k === 'visaExp' || k === 'start' ? dmy(v) : v)}</span>`;
+  $('i_prev').innerHTML = IMP.recs.map((x, i) => {
+    const p = x.hit && S.people[x.hit];
+    const keys = Object.keys(x.ch).filter(k => k !== 'name');
+    return `<label class="doc" style="align-items:flex-start;cursor:pointer"><input type="checkbox" ${x.on ? 'checked' : ''} onchange="IMP.recs[${i}].on=this.checked" style="margin-top:4px">
+      <div class="i"><b>${esc(x.r.name || '')}${p ? ` <span class="pill ok">קיים: ${esc(label(p))}</span>` : ' <span class="pill org">עובד חדש</span>'}</b>
+      <span style="white-space:normal">${keys.length ? (p ? 'יתעדכן — ' : '') + keys.map(k => show(k, x.ch[k])).join(' · ') : 'אין שינויים — כבר מעודכן'}</span></div></label>`;
+  }).join('') + `<div class="row"><button class="btn" id="i_go" onclick="impApply()">✅ ייבא את המסומנים</button></div>`;
+}
+async function impApply() {
+  let added = 0, upd = 0;
+  for (const x of IMP.recs) {
+    if (!x.on) continue;
+    if (x.hit) { if (!Object.keys(x.ch).length) continue; await Cloud.put('people', x.hit, { ...S.people[x.hit], ...x.ch }); upd++; }
+    else { const p = { id: uid('w'), created: today(), country: 'תאילנד', status: 'active', ...x.r }; await Cloud.put('people', p.id, p); added++; }
+  }
+  closeMd(); render(); toast(`✅ ${added ? added + ' עובדים נוספו' : ''}${added && upd ? ' · ' : ''}${upd ? upd + ' עודכנו' : ''}${!added && !upd ? 'לא היה מה לעדכן' : ''}`);
 }
 
 /* ---------- תיקון מסמך קיים ---------- */
@@ -584,6 +726,23 @@ async function saveEditDoc() {
 
 /* ---------- Claude ---------- */
 const AI = {
+  async readList(file) {
+    const key = localStorage.getItem('luria_api_key'); if (!key) throw new Error('חסר מפתח Claude');
+    const b64 = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = no; r.readAsDataURL(file); });
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    const src = isPdf ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } } : { type: 'image', source: { type: 'base64', media_type: /^image\/(jpeg|png|gif|webp)$/.test(file.type) ? file.type : 'image/jpeg', data: b64 } };
+    const prompt = 'זו רשימה/טבלה של עובדים. החזר JSON בלבד — מערך של אובייקטים, אחד לכל עובד, עם השדות שמופיעים (העתק בדיוק, כולל אפסים מובילים, כטקסט):\n[{"first":"שם פרטי","last":"שם משפחה","full":"שם מלא אם אין פיצול","passNo":"מספר דרכון","phone":"טלפון","bankName":"בנק (כמו שכתוב, גם אם זה מספר)","bankBranch":"סניף","bankAcc":"מספר חשבון","bankOpen":"תאריך פתיחת חשבון YYYY-MM-DD","birth":"תאריך לידה YYYY-MM-DD","visaNo":"מספר ויזה","visaExp":"תוקף ויזה YYYY-MM-DD","start":"תחילת עבודה YYYY-MM-DD"}]\nשדה שלא מופיע — השמט אותו.';
+    let last = '';
+    for (const model of ['claude-sonnet-5-5', 'claude-sonnet-5', 'claude-sonnet-4-5']) {
+      const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model, max_tokens: 4000, messages: [{ role: 'user', content: [src, { type: 'text', text: prompt }] }] }) });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { const t = (j.content || []).map(x => x.text || '').join(''); const m = t.match(/\[[\s\S]*\]/); return m ? JSON.parse(m[0]) : []; }
+      last = (j.error && j.error.message) || r.status;
+      if (!(r.status === 404 || (r.status === 400 && /model/i.test(last)))) break;
+    }
+    throw new Error('Claude: ' + last);
+  },
   async read(file, cat) {
     const key = localStorage.getItem('luria_api_key'); if (!key) return {};
     const b64 = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = no; r.readAsDataURL(file); });
@@ -593,7 +752,7 @@ const AI = {
     const names = active().map(p => p.name + (p.nick ? ' (' + p.nick + ')' : '')).join(' | ');
     const prompt = `זה מסמך של עובד זר (כנראה מתאילנד) בחווה בישראל. ${CAT[cat] ? 'סוג המסמך שהמשתמש בחר: ' + CAT[cat].t + ' — אבל קבע בעצמך לפי התוכן.' : ''}
 החזר JSON בלבד, בלי טקסט נוסף:
-{"docType":"סוג המסמך בפועל, אחד מ: pay (תלוש שכר), hours (דוח שעות עבודה), ins (ביטוח בריאות / פוליסה), visa (ויזה / אשרת עבודה / רישיון שהייה), pass (דרכון), cont (חוזה העסקה), other","workerName":"שם העובד כפי שמופיע במסמך, באנגלית אם יש","passportNo":"מספר דרכון אם מופיע או null","docNumber":"מספר המסמך/פוליסה/ויזה או null","expiry":"תאריך תפוגה YYYY-MM-DD או null","birthDate":"YYYY-MM-DD או null","period":"החודש שהמסמך מתייחס אליו YYYY-MM (לתלוש שכר/דוח שעות) או null","company":"שם חברת הביטוח אם רלוונטי או null","hours":"סך שעות העבודה בחודש — מספר או null","net":"שכר נטו לתשלום — מספר או null"}
+{"docType":"סוג המסמך בפועל, אחד מ: pay (תלוש שכר), hours (דוח שעות עבודה), ins (ביטוח בריאות / פוליסה), visa (ויזה / אשרת עבודה / רישיון שהייה), pass (דרכון), cont (חוזה העסקה), other","workerName":"שם העובד כפי שמופיע במסמך, באנגלית אם יש","passportNo":"מספר דרכון אם מופיע או null","docNumber":"מספר המסמך/פוליסה/ויזה או null","expiry":"תאריך תפוגה YYYY-MM-DD או null","birthDate":"YYYY-MM-DD או null","period":"החודש שהמסמך מתייחס אליו YYYY-MM (לתלוש שכר/דוח שעות) או null","company":"שם חברת הביטוח אם רלוונטי או null","bankName":"שם הבנק לתשלום השכר אם מופיע או null","bankBranch":"מספר סניף או null","bankAcc":"מספר חשבון בנק או null","hours":"סך שעות העבודה בחודש — מספר או null","net":"שכר נטו לתשלום — מספר או null"}
 רשימת העובדים הקיימים: ${names}`;
     const models = ['claude-sonnet-5-5', 'claude-sonnet-5', 'claude-sonnet-4-5'];
     let last = '';
