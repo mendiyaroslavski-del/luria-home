@@ -471,6 +471,10 @@ body::before {
 }
 .debts .card-icon { background: rgba(224,122,95,0.15); border: 1px solid rgba(224,122,95,0.25); }
 .debts .tag { background: rgba(224,122,95,0.12); color: #e07a5f; border: 1px solid rgba(224,122,95,0.2); }
+.app-card.workers:hover { border-color: rgba(94,200,190,0.5); box-shadow: 0 24px 60px rgba(60,170,160,0.2); }
+.workers .card-icon { background: rgba(94,200,190,0.15); border: 1px solid rgba(94,200,190,0.25); }
+.workers .tag { background: rgba(94,200,190,0.12); color: #6fd3c8; border: 1px solid rgba(94,200,190,0.2); }
+.app-card:nth-child(6) { animation-delay: 1.1s; }
 .debts .card-arrow { color: #e07a5f; }
 .debts .arrow-icon { background: rgba(224,122,95,0.15); }
 .app-card:hover .arrow-icon { transform: translateX(-4px); }
@@ -653,6 +657,28 @@ body::before {
           <span class="tag">חובות</span>
           <span class="tag">תשלומים</span>
           <span class="tag">PDF</span>
+        </div>
+      </div>
+      <div class="card-arrow">
+        <span>כניסה למערכת</span>
+        <div class="arrow-icon">←</div>
+      </div>
+    </a>
+
+    <!-- Card 6: Foreign Workers -->
+    <a class="app-card workers" href="luria-workers.html">
+      <div class="card-icon">👷</div>
+      <div class="card-body">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div class="card-title" style="margin-bottom:0">ניהול עובדים זרים</div>
+          <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(94,200,190,0.15);color:#6fd3c8;border:1px solid rgba(94,200,190,0.2)">v1.0</span>
+        </div>
+        <div class="card-desc">כרטיס ותיק מסמכים לכל עובד: תלושי שכר, דוחות שעות, ביטוח בריאות, ויזות ודרכונים — עם התראות תוקף.</div>
+        <div class="card-tags">
+          <span class="tag">עובדים</span>
+          <span class="tag">ויזות</span>
+          <span class="tag">ביטוח</span>
+          <span class="tag">תלושים</span>
         </div>
       </div>
       <div class="card-arrow">
