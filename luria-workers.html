@@ -489,11 +489,12 @@ function matchWorker(info) {
 }
 async function applyToWorker(wid, cat, info, exp) {
   const p = { ...S.people[wid] }; let ch = false;
-  const later = (f, v) => { if (v && /^\d{4}-\d{2}-\d{2}$/.test(v) && (!p[f] || v > p[f])) { p[f] = v; ch = true; } };
-  const fill = (f, v) => { if (v && !p[f]) { p[f] = String(v); ch = true; } };
-  if (cat === 'visa') { later('visaExp', exp); fill('visaNo', info.docNumber); }
-  if (cat === 'pass') { later('passExp', exp); fill('passNo', info.passportNo || info.docNumber); fill('birth', /^\d{4}-\d{2}-\d{2}$/.test(info.birthDate || '') ? info.birthDate : ''); fill('name', info.workerName); }
-  if (cat === 'ins') { later('insExp', exp); fill('insCo', info.company); fill('insNo', info.docNumber); }
+  const later = (f, v) => { if (v && /^\d{4}-\d{2}-\d{2}$/.test(v) && (!p[f] || v >= p[f])) { if (p[f] !== v) { p[f] = v; ch = true; } return true; } return false; };
+  const set = (f, v, force) => { if (v && (force || !p[f]) && p[f] !== String(v)) { p[f] = String(v); ch = true; } };
+  // מסמך עדכני (התוקף הכי מאוחר) — מעדכן גם מספרים וחברה; מסמך ישן — רק משלים שדות ריקים
+  if (cat === 'visa') { const cur = later('visaExp', exp); set('visaNo', info.docNumber, cur); }
+  if (cat === 'pass') { const cur = later('passExp', exp); set('passNo', info.passportNo || info.docNumber, cur); set('birth', /^\d{4}-\d{2}-\d{2}$/.test(info.birthDate || '') ? info.birthDate : ''); set('name', info.workerName); }
+  if (cat === 'ins') { const cur = later('insExp', exp); set('insCo', info.company, cur); set('insNo', info.docNumber, cur); }
   if (ch) await Cloud.put('people', wid, p);
 }
 
