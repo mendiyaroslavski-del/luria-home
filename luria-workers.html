@@ -354,7 +354,7 @@ function docRow(d) {
   const c = CAT[d.cat] || CAT.other;
   const sub = [d.period ? 'חודש ' + ym(d.period + '-01') : '', d.exp ? 'בתוקף עד ' + dmy(d.exp) : '', d.date ? 'הועלה ' + dmy(d.date) : '', d.shared ? 'קובץ משותף' : ''].filter(Boolean).join(' · ');
   return `<div class="doc"><div class="ic">${c.ic}</div><div class="i"><b>${esc(d.title || d.fname || c.t)}</b><span>${sub}</span></div>
-    <button class="btn sec sm" onclick="openDoc('${d.id}')">פתח</button><button class="btn ghost sm" onclick="removeDoc('${d.id}')" title="הסר מהרשימה">✕</button></div>`;
+    <button class="btn sec sm" onclick="openDoc('${d.id}')">פתח</button><button class="btn ghost sm" onclick="editDoc('${d.id}')" title="תיקון סוג / עובד / תאריך">✏️</button><button class="btn ghost sm" onclick="removeDoc('${d.id}')" title="הסר מהרשימה">✕</button></div>`;
 }
 function openWorker(id) { view.wid = id; view.cat = 'pay'; render(); scrollTo(0, 0); }
 function openDoc(id) { const d = S.docs[id]; if (d && d.link) window.open(d.link, '_blank'); }
@@ -398,16 +398,17 @@ async function deleteWorker(id) {
 let UP = null;
 function uploadDialog(wid, cat, period) {
   if (!active().length && !wid) { toast('קודם מוסיפים עובד'); return; }
-  UP = { wid: wid || '', cat: cat || 'pay', period: period || lastMonths(1)[0], files: [], multi: [] };
+  UP = { wid: wid || '', cat: cat || (localStorage.getItem('luria_api_key') ? 'auto' : 'pay'), period: period || lastMonths(1)[0], files: [], multi: [] };
   drawUpload(); openMd();
 }
 function drawUpload() {
-  const c = CAT[UP.cat];
-  const ps = active();
   const hasKey = !!localStorage.getItem('luria_api_key');
+  if (UP.cat === 'auto' && !hasKey) UP.cat = 'pay';
+  const c = CAT[UP.cat] || {};
+  const ps = active();
   $('md').innerHTML = `<h2>📤 העלאת מסמך<button class="x" onclick="closeMd()">✕</button></h2>
   <div class="fg">
-    <label class="f">סוג מסמך<select id="u_cat" onchange="UP.cat=this.value;drawUpload()">${CATS.map(k => `<option value="${k.k}" ${k.k === UP.cat ? 'selected' : ''}>${k.ic} ${k.t}</option>`).join('')}</select></label>
+    <label class="f">סוג מסמך<select id="u_cat" onchange="UP.cat=this.value;drawUpload()">${hasKey ? `<option value="auto" ${UP.cat === 'auto' ? 'selected' : ''}>🤖 זיהוי אוטומטי מהמסמך</option>` : ''}${CATS.map(k => `<option value="${k.k}" ${k.k === UP.cat ? 'selected' : ''}>${k.ic} ${k.t}</option>`).join('')}</select></label>
     <label class="f">עובד<select id="u_wid" onchange="UP.wid=this.value">${UP.multiOn ? '<option>כמה עובדים — סמן למטה</option>' : `<option value="">${hasKey ? '🤖 זיהוי אוטומטי מהמסמך' : '— בחר —'}</option>` + ps.map(p => `<option value="${p.id}" ${p.id === UP.wid ? 'selected' : ''}>${esc(label(p))}</option>`).join('')}</select></label>
     ${c.period ? `<label class="f">חודש<input id="u_period" type="month" value="${UP.period}" onchange="UP.period=this.value"></label>` : ''}
     ${c.exp ? `<label class="f">בתוקף עד<input id="u_exp" type="date" value="${UP.exp || ''}" onchange="UP.exp=this.value"></label>` : ''}
@@ -418,7 +419,8 @@ function drawUpload() {
     <input type="file" id="u_file" accept="application/pdf,image/*" multiple onchange="UP.files=[...this.files];drawFiles()">
     <div id="u_files">📎 לחץ לבחירת קובץ או צילום<br><span style="font-size:12px;opacity:.6">PDF או תמונה · אפשר כמה קבצים</span></div>
   </div>
-  ${hasKey ? `<label class="chk"><input type="checkbox" id="u_ai" checked> 🤖 Claude יקרא את המסמך וימלא חודש / תוקף / עובד</label>` : `<div class="note">💡 אם מגדירים מפתח Claude במערכת החשבוניות, המסמכים ייקראו אוטומטית.</div>`}
+  ${hasKey ? `<label class="chk"><input type="checkbox" id="u_ai" checked onchange="if(!this.checked&&UP.cat==='auto'){UP.cat='pay';drawUpload()}"> 🤖 Claude יקרא כל מסמך ויזהה סוג, עובד, חודש ותוקף</label>
+    <div class="note">גם אם בחרת סוג או עובד — אם Claude מזהה בבירור משהו אחר, הוא יתקן ויציין זאת.</div>` : `<div class="note">💡 אם מגדירים מפתח Claude במערכת החשבוניות, המסמכים ייקראו אוטומטית.</div>`}
   <div class="row"><button class="btn" id="u_go" onclick="doUpload()">📤 העלאה לדרייב ושמירה</button></div>
   <div class="note" id="u_st"></div>`;
   if (UP.files.length) drawFiles();
@@ -427,12 +429,13 @@ function drawFiles() { $('u_files').innerHTML = UP.files.map(f => '📄 ' + esc(
 
 async function doUpload() {
   if (!UP.files.length) { toast('בחר קובץ'); return; }
-  const c = CAT[UP.cat];
   const useAi = $('u_ai') && $('u_ai').checked;
   const multi = UP.multiOn ? [...document.querySelectorAll('.u_m')].filter(x => x.checked).map(x => x.value) : null;
   if (UP.multiOn && !multi.length) { toast('סמן לפחות עובד אחד'); return; }
   if (!multi && !UP.wid && !useAi) { toast('בחר עובד'); return; }
+  if (UP.cat === 'auto' && !useAi) { toast('בחר סוג מסמך'); return; }
   const st = $('u_st'), go = $('u_go'); go.disabled = true;
+  const log = [];
   try {
     st.innerHTML = '<span class="spin"></span> מתחבר לדרייב…';
     try { await Drive.token(); } catch (e) { throw new Error('החיבור לדרייב — ' + (e.code === 'auth/popup-blocked' ? 'הדפדפן חסם את חלון ההתחברות. אפשר חלונות קופצים ונסה שוב' : e.message)); }
@@ -440,52 +443,71 @@ async function doUpload() {
     for (const file of UP.files) {
       n++;
       const pre = UP.files.length > 1 ? `(${n}/${UP.files.length}) ` : '';
-      let info = {};
-      try { const buf = await file.arrayBuffer(); if (!buf.byteLength) throw 0; var fileObj = new File([buf], file.name, { type: file.type || (/\.pdf$/i.test(file.name) ? 'application/pdf' : 'image/jpeg') }); }
+      let info = {}, fileObj;
+      try { const buf = await file.arrayBuffer(); if (!buf.byteLength) throw 0; fileObj = new File([buf], file.name, { type: file.type || (/\.pdf$/i.test(file.name) ? 'application/pdf' : 'image/jpeg') }); }
       catch (e) { throw new Error(`לא ניתן לקרוא את הקובץ "${file.name}" מהטלפון. אם בחרת אותו ישר מהדרייב או מהמייל — הורד אותו קודם לטלפון ובחר אותו מתיקיית ההורדות.`); }
       if (useAi) { st.innerHTML = `<span class="spin"></span> ${pre}Claude קורא את ${esc(file.name)}…`; info = await AI.read(fileObj, UP.cat).catch(e => { console.warn(e); return { _err: e.message }; }); }
-      const cat = UP.cat;
-      const period = c.period ? (info.period && /^\d{4}-\d{2}$/.test(info.period) ? info.period : ($('u_period') || {}).value) : '';
+      const r = resolveDoc(info, UP.cat, multi ? null : UP.wid, !!multi);
+      if (!r.cat) { st.innerHTML = `⚠️ ${pre}לא זוהה סוג המסמך ב-${esc(file.name)} — בחר סוג ידנית ולחץ שוב`; go.disabled = false; UP.files = UP.files.slice(n - 1); return; }
+      if (!multi && !r.wid) { st.innerHTML = `⚠️ ${pre}לא זוהה העובד ב-${esc(file.name)} — בחר עובד ידנית ולחץ שוב`; go.disabled = false; UP.files = UP.files.slice(n - 1); return; }
+      const c = CAT[r.cat];
+      const period = c.period ? ((info.period && /^\d{4}-\d{2}$/.test(info.period)) ? info.period : (($('u_period') || {}).value || UP.period)) : '';
       const exp = c.exp ? (($('u_exp') || {}).value || (/^\d{4}-\d{2}-\d{2}$/.test(info.expiry || '') ? info.expiry : '')) : '';
-      let wid = multi ? null : (UP.wid || matchWorker(info));
-      if (!multi && !wid) { st.innerHTML = `⚠️ ${pre}לא זוהה העובד ב-${esc(file.name)} — בחר עובד ידנית ולחץ שוב`; go.disabled = false; UP.files = UP.files.slice(n - 1); return; }
+      const owner = multi ? null : S.people[r.wid];
       const ext = (file.name.split('.').pop() || 'pdf').toLowerCase();
-      const owner = multi ? null : S.people[wid];
-      const title = c.t + (period ? ' ' + ym(period + '-01') : '') + (exp ? ' עד ' + dmy(exp) : '');
+      const title = docTitle(r.cat, period, exp);
       const fname = (owner ? label(owner) + ' - ' : '') + title.replace(/\//g, '-') + '.' + ext;
-      st.innerHTML = `<span class="spin"></span> ${pre}מעלה לדרייב…`;
       const stage = async (what, fn) => { try { return await fn(); } catch (e) { throw new Error(what + ' — ' + (/fetch|network/i.test(e.message) ? 'אין חיבור לגוגל דרייב. בדוק אינטרנט ונסה שוב' : e.message)); } };
-      const folder = await stage('יצירת תיקייה בדרייב', () => multi ? Drive.sharedFolder(cat) : Drive.workerFolder(owner, cat));
+      st.innerHTML = `<span class="spin"></span> ${pre}יוצר תיקייה…`;
+      const folder = await stage('יצירת תיקייה בדרייב', () => multi ? Drive.sharedFolder(r.cat) : Drive.workerFolder(owner, r.cat));
       st.innerHTML = `<span class="spin"></span> ${pre}מעלה את הקובץ (${Math.round(fileObj.size / 1024)} KB)…`;
       const up = await stage('העלאת הקובץ לדרייב', () => Drive.upload(fileObj, fname, folder));
-      const targets = multi || [wid];
-      for (const w of targets) {
-        const d = { id: uid('d'), wid: w, cat, title, fname, fileId: up.id, link: up.webViewLink || ('https://drive.google.com/file/d/' + up.id + '/view'), date: today() };
+      for (const w of (multi || [r.wid])) {
+        const d = { id: uid('d'), wid: w, cat: r.cat, title, fname, fileId: up.id, link: up.webViewLink || ('https://drive.google.com/file/d/' + up.id + '/view'), date: today() };
         if (period) d.period = period; if (exp) d.exp = exp; if (multi) d.shared = true;
         if (info.hours) d.hours = info.hours; if (info.net) d.net = info.net;
         await Cloud.put('docs', d.id, d);
-        await applyToWorker(w, cat, info, exp);
+        await applyToWorker(w, r.cat, info, exp);
       }
+      log.push(`📄 ${esc(file.name)} → ${c.ic} ${c.t}${exp ? ' עד ' + dmy(exp) : ''}${period ? ' ' + ym(period + '-01') : ''} · ${multi ? multi.length + ' עובדים' : esc(label(owner))}${r.notes.length ? ' <span style="color:#ffd59a">(' + r.notes.join(', ') + ')</span>' : ''}`);
     }
-    st.innerHTML = '✅ הועלה ונשמר';
-    toast('✅ המסמך נשמר בתיק העובד ובדרייב');
-    setTimeout(() => { closeMd(); render(); }, 700);
+    st.innerHTML = '✅ הועלה ונשמר:<br>' + log.join('<br>');
+    go.textContent = 'סגור'; go.disabled = false; go.onclick = () => { closeMd(); render(); };
+    render();
   } catch (e) {
     console.error(e); go.disabled = false;
-    st.innerHTML = '❌ ' + esc(e.message || e);
+    st.innerHTML = (log.length ? '✅ ' + log.join('<br>') + '<br>' : '') + '❌ ' + esc(e.message || e);
   }
 }
+// מה Claude זיהה מול מה שנבחר — מחזיר סוג ועובד סופיים + הערות
+function resolveDoc(info, chosenCat, chosenWid, multi) {
+  const notes = [];
+  const aiCat = CAT[info.docType] ? info.docType : null;
+  let cat = chosenCat === 'auto' ? aiCat : chosenCat;
+  if (chosenCat !== 'auto' && aiCat && aiCat !== 'other' && aiCat !== chosenCat) { cat = aiCat; notes.push('Claude זיהה ' + CAT[aiCat].t + ' ולא ' + CAT[chosenCat].t); }
+  if (!cat && chosenCat === 'auto') cat = null;
+  let wid = chosenWid || null;
+  if (!multi) {
+    const m = matchWorker(info);
+    if (!wid) wid = m;
+    else if (m && m !== wid && info._strong) { notes.push('המסמך שייך ל' + label(S.people[m])); wid = m; }
+  }
+  return { cat, wid, notes };
+}
+function docTitle(cat, period, exp) { return CAT[cat].t + (period ? ' ' + ym(period + '-01') : '') + (exp ? ' עד ' + dmy(exp) : ''); }
+
 function matchWorker(info) {
   const cand = String(info.workerName || '').toLowerCase().replace(/[^a-z֐-׿฀-๿ ]/g, ' ').split(/\s+/).filter(w => w.length > 1);
   const passNo = String(info.passportNo || '').replace(/\s/g, '').toUpperCase();
-  let best = null, score = 0;
+  let best = null, score = 0, second = 0;
   for (const p of active()) {
-    if (passNo && String(p.passNo || '').replace(/\s/g, '').toUpperCase() === passNo) return p.id;
+    if (passNo && String(p.passNo || '').replace(/\s/g, '').toUpperCase() === passNo) { info._strong = true; return p.id; }
     const words = (String(p.name || '') + ' ' + String(p.nick || '')).toLowerCase().split(/\s+/).filter(w => w.length > 1);
-    const s = cand.filter(w => words.includes(w)).length;
-    if (s > score) { score = s; best = p.id; }
+    const sc = cand.filter(w => words.includes(w)).length;
+    if (sc > score) { second = score; score = sc; best = p.id; } else if (sc > second) second = sc;
   }
-  return score ? best : null;
+  if (score >= 2 && second < score) info._strong = true;
+  return score && score > second ? best : null;
 }
 async function applyToWorker(wid, cat, info, exp) {
   const p = { ...S.people[wid] }; let ch = false;
@@ -498,6 +520,68 @@ async function applyToWorker(wid, cat, info, exp) {
   if (ch) await Cloud.put('people', wid, p);
 }
 
+/* ---------- תיקון מסמך קיים ---------- */
+let ED = null;
+function editDoc(id) {
+  const d = S.docs[id]; if (!d) return;
+  ED = { id, cat: d.cat, wid: d.wid, period: d.period || '', exp: d.exp || '', info: {} };
+  drawEditDoc(); openMd();
+}
+function drawEditDoc() {
+  const d = S.docs[ED.id], c = CAT[ED.cat];
+  const hasKey = !!localStorage.getItem('luria_api_key');
+  $('md').innerHTML = `<h2>✏️ תיקון מסמך<button class="x" onclick="closeMd()">✕</button></h2>
+  <div class="note" style="margin:-6px 0 10px">${esc(d.fname || d.title)} · <a href="${esc(d.link)}" target="_blank">פתח קובץ</a></div>
+  ${hasKey ? `<button class="btn sec" style="width:100%;margin-bottom:12px" id="e_ai" onclick="edReread()">🤖 Claude יקרא שוב את הקובץ וימלא</button>` : ''}
+  <div class="fg">
+    <label class="f">סוג מסמך<select onchange="ED.cat=this.value;drawEditDoc()">${CATS.map(k => `<option value="${k.k}" ${k.k === ED.cat ? 'selected' : ''}>${k.ic} ${k.t}</option>`).join('')}</select></label>
+    <label class="f">עובד<select onchange="ED.wid=this.value" ${d.shared ? 'disabled' : ''}>${allPeople().map(p => `<option value="${p.id}" ${p.id === ED.wid ? 'selected' : ''}>${esc(label(p))}</option>`).join('')}</select></label>
+    ${c.period ? `<label class="f">חודש<input type="month" value="${ED.period}" onchange="ED.period=this.value"></label>` : ''}
+    ${c.exp ? `<label class="f">בתוקף עד<input type="date" value="${ED.exp}" onchange="ED.exp=this.value"></label>` : ''}
+  </div>
+  <div class="note">כשמשנים סוג או עובד, הקובץ עובר גם בדרייב לתיקייה הנכונה.</div>
+  <div class="row"><button class="btn" id="e_go" onclick="saveEditDoc()">💾 שמירה</button></div>
+  <div class="note" id="e_st"></div>`;
+}
+async function edReread() {
+  const d = S.docs[ED.id], st = $('e_st'); $('e_ai').disabled = true;
+  try {
+    st.innerHTML = '<span class="spin"></span> מוריד את הקובץ מהדרייב…';
+    const file = await Drive.download(d.fileId, d.fname || 'doc.pdf');
+    st.innerHTML = '<span class="spin"></span> Claude קורא…';
+    const info = await AI.read(file, 'auto');
+    ED.info = info;
+    const r = resolveDoc(info, 'auto', null, !!d.shared);
+    if (r.cat) ED.cat = r.cat;
+    if (r.wid && !d.shared) ED.wid = r.wid;
+    if (CAT[ED.cat].exp && /^\d{4}-\d{2}-\d{2}$/.test(info.expiry || '')) ED.exp = info.expiry;
+    if (CAT[ED.cat].period && /^\d{4}-\d{2}$/.test(info.period || '')) ED.period = info.period;
+    drawEditDoc();
+    $('e_st').innerHTML = `🤖 זוהה: ${CAT[ED.cat].ic} ${CAT[ED.cat].t} · ${esc(label(S.people[ED.wid]))}${CAT[ED.cat].exp && ED.exp ? ' · עד ' + dmy(ED.exp) : ''}${CAT[ED.cat].period && ED.period ? ' · ' + ym(ED.period + '-01') : ''} — בדוק ולחץ שמירה`;
+  } catch (e) { st.innerHTML = '❌ ' + esc(e.message); if ($('e_ai')) $('e_ai').disabled = false; }
+}
+async function saveEditDoc() {
+  const old = S.docs[ED.id]; const st = $('e_st'); $('e_go').disabled = true;
+  const c = CAT[ED.cat];
+  const d = { ...old, cat: ED.cat, wid: ED.wid };
+  if (c.period && ED.period) d.period = ED.period; else delete d.period;
+  if (c.exp && ED.exp) d.exp = ED.exp; else delete d.exp;
+  d.title = docTitle(d.cat, d.period, d.exp);
+  try {
+    if (!old.shared && (old.cat !== d.cat || old.wid !== d.wid || old.title !== d.title) && d.fileId) {
+      st.innerHTML = '<span class="spin"></span> מעביר בדרייב…';
+      const owner = S.people[d.wid];
+      const ext = (String(old.fname || '').split('.').pop() || 'pdf');
+      d.fname = label(owner) + ' - ' + d.title.replace(/\//g, '-') + '.' + ext;
+      try { await Drive.move(d.fileId, await Drive.workerFolder(owner, d.cat), d.fname); }
+      catch (e) { console.warn(e); toast('הרשומה תוקנה, אבל את הקובץ בדרייב לא הצלחתי להעביר: ' + e.message, 6000); }
+    }
+    await Cloud.put('docs', d.id, d);
+    await applyToWorker(d.wid, d.cat, ED.info || {}, d.exp);
+    closeMd(); render(); toast('✅ המסמך תוקן');
+  } catch (e) { st.innerHTML = '❌ ' + esc(e.message); $('e_go').disabled = false; }
+}
+
 /* ---------- Claude ---------- */
 const AI = {
   async read(file, cat) {
@@ -507,9 +591,9 @@ const AI = {
     const mt = isPdf ? 'application/pdf' : (/^image\/(jpeg|png|gif|webp)$/.test(file.type) ? file.type : 'image/jpeg');
     const src = isPdf ? { type: 'document', source: { type: 'base64', media_type: mt, data: b64 } } : { type: 'image', source: { type: 'base64', media_type: mt, data: b64 } };
     const names = active().map(p => p.name + (p.nick ? ' (' + p.nick + ')' : '')).join(' | ');
-    const prompt = `זה מסמך של עובד זר (כנראה מתאילנד) בחווה בישראל. סוג המסמך המשוער: ${CAT[cat].t}.
+    const prompt = `זה מסמך של עובד זר (כנראה מתאילנד) בחווה בישראל. ${CAT[cat] ? 'סוג המסמך שהמשתמש בחר: ' + CAT[cat].t + ' — אבל קבע בעצמך לפי התוכן.' : ''}
 החזר JSON בלבד, בלי טקסט נוסף:
-{"workerName":"שם העובד כפי שמופיע במסמך, באנגלית אם יש","passportNo":"מספר דרכון אם מופיע או null","docNumber":"מספר המסמך/פוליסה/ויזה או null","expiry":"תאריך תפוגה YYYY-MM-DD או null","birthDate":"YYYY-MM-DD או null","period":"החודש שהמסמך מתייחס אליו YYYY-MM (לתלוש שכר/דוח שעות) או null","company":"שם חברת הביטוח אם רלוונטי או null","hours":"סך שעות העבודה בחודש — מספר או null","net":"שכר נטו לתשלום — מספר או null"}
+{"docType":"סוג המסמך בפועל, אחד מ: pay (תלוש שכר), hours (דוח שעות עבודה), ins (ביטוח בריאות / פוליסה), visa (ויזה / אשרת עבודה / רישיון שהייה), pass (דרכון), cont (חוזה העסקה), other","workerName":"שם העובד כפי שמופיע במסמך, באנגלית אם יש","passportNo":"מספר דרכון אם מופיע או null","docNumber":"מספר המסמך/פוליסה/ויזה או null","expiry":"תאריך תפוגה YYYY-MM-DD או null","birthDate":"YYYY-MM-DD או null","period":"החודש שהמסמך מתייחס אליו YYYY-MM (לתלוש שכר/דוח שעות) או null","company":"שם חברת הביטוח אם רלוונטי או null","hours":"סך שעות העבודה בחודש — מספר או null","net":"שכר נטו לתשלום — מספר או null"}
 רשימת העובדים הקיימים: ${names}`;
     const models = ['claude-sonnet-5-5', 'claude-sonnet-5', 'claude-sonnet-4-5'];
     let last = '';
@@ -651,6 +735,19 @@ const Drive = window.Drive = {
       await Cloud.put('people', p.id, { ...S.people[p.id], folder: wf });
     }
     return this.child(wf, CAT[cat].t);
+  },
+  async download(id, name) {
+    const t = await this.token();
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`, { headers: { Authorization: 'Bearer ' + t } });
+    if (r.status === 401) { sessionStorage.removeItem(TOK); throw new Error('ההרשאה לדרייב פגה — נסה שוב'); }
+    if (!r.ok) throw new Error('הורדה מהדרייב נכשלה: ' + r.status);
+    const b = await r.blob();
+    return new File([b], name, { type: b.type || (/\.pdf$/i.test(name) ? 'application/pdf' : 'image/jpeg') });
+  },
+  async move(id, folder, name) {
+    const f = await this.api(`https://www.googleapis.com/drive/v3/files/${id}?fields=parents`);
+    const rm = (f.parents || []).filter(x => x !== folder).join(',');
+    await this.api(`https://www.googleapis.com/drive/v3/files/${id}?addParents=${folder}${rm ? '&removeParents=' + rm : ''}&fields=id`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(name ? { name } : {}) });
   },
   async sharedFolder(cat) { return this.child(await this.child(await this.root(), 'מסמכים משותפים'), CAT[cat].t); },
   async upload(file, name, parent) {
