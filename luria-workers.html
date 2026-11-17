@@ -435,13 +435,15 @@ async function doUpload() {
   const st = $('u_st'), go = $('u_go'); go.disabled = true;
   try {
     st.innerHTML = '<span class="spin"></span> מתחבר לדרייב…';
-    await Drive.token();
+    try { await Drive.token(); } catch (e) { throw new Error('החיבור לדרייב — ' + (e.code === 'auth/popup-blocked' ? 'הדפדפן חסם את חלון ההתחברות. אפשר חלונות קופצים ונסה שוב' : e.message)); }
     let n = 0;
     for (const file of UP.files) {
       n++;
       const pre = UP.files.length > 1 ? `(${n}/${UP.files.length}) ` : '';
       let info = {};
-      if (useAi) { st.innerHTML = `<span class="spin"></span> ${pre}Claude קורא את ${esc(file.name)}…`; info = await AI.read(file, UP.cat).catch(e => { console.warn(e); return { _err: e.message }; }); }
+      try { const buf = await file.arrayBuffer(); if (!buf.byteLength) throw 0; var fileObj = new File([buf], file.name, { type: file.type || (/\.pdf$/i.test(file.name) ? 'application/pdf' : 'image/jpeg') }); }
+      catch (e) { throw new Error(`לא ניתן לקרוא את הקובץ "${file.name}" מהטלפון. אם בחרת אותו ישר מהדרייב או מהמייל — הורד אותו קודם לטלפון ובחר אותו מתיקיית ההורדות.`); }
+      if (useAi) { st.innerHTML = `<span class="spin"></span> ${pre}Claude קורא את ${esc(file.name)}…`; info = await AI.read(fileObj, UP.cat).catch(e => { console.warn(e); return { _err: e.message }; }); }
       const cat = UP.cat;
       const period = c.period ? (info.period && /^\d{4}-\d{2}$/.test(info.period) ? info.period : ($('u_period') || {}).value) : '';
       const exp = c.exp ? (($('u_exp') || {}).value || (/^\d{4}-\d{2}-\d{2}$/.test(info.expiry || '') ? info.expiry : '')) : '';
@@ -452,8 +454,10 @@ async function doUpload() {
       const title = c.t + (period ? ' ' + ym(period + '-01') : '') + (exp ? ' עד ' + dmy(exp) : '');
       const fname = (owner ? label(owner) + ' - ' : '') + title.replace(/\//g, '-') + '.' + ext;
       st.innerHTML = `<span class="spin"></span> ${pre}מעלה לדרייב…`;
-      const folder = multi ? await Drive.sharedFolder(cat) : await Drive.workerFolder(owner, cat);
-      const up = await Drive.upload(file, fname, folder);
+      const stage = async (what, fn) => { try { return await fn(); } catch (e) { throw new Error(what + ' — ' + (/fetch|network/i.test(e.message) ? 'אין חיבור לגוגל דרייב. בדוק אינטרנט ונסה שוב' : e.message)); } };
+      const folder = await stage('יצירת תיקייה בדרייב', () => multi ? Drive.sharedFolder(cat) : Drive.workerFolder(owner, cat));
+      st.innerHTML = `<span class="spin"></span> ${pre}מעלה את הקובץ (${Math.round(fileObj.size / 1024)} KB)…`;
+      const up = await stage('העלאת הקובץ לדרייב', () => Drive.upload(fileObj, fname, folder));
       const targets = multi || [wid];
       for (const w of targets) {
         const d = { id: uid('d'), wid: w, cat, title, fname, fileId: up.id, link: up.webViewLink || ('https://drive.google.com/file/d/' + up.id + '/view'), date: today() };
@@ -614,7 +618,8 @@ const Drive = window.Drive = {
   },
   async api(url, opt = {}) {
     const t = await this.token();
-    const r = await fetch(url, { ...opt, headers: { ...(opt.headers || {}), Authorization: 'Bearer ' + t } });
+    const go = () => fetch(url, { ...opt, headers: { ...(opt.headers || {}), Authorization: 'Bearer ' + t } });
+    let r; try { r = await go(); } catch (e) { await new Promise(z => setTimeout(z, 1500)); r = await go(); }
     if (r.status === 401) { sessionStorage.removeItem(TOK); throw new Error('ההרשאה לדרייב פגה — נסה שוב'); }
     if (!r.ok) throw new Error('דרייב ' + r.status + ': ' + (await r.text()).slice(0, 160));
     return r.json();
@@ -653,7 +658,8 @@ const Drive = window.Drive = {
     const fd = new FormData();
     fd.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
     fd.append('file', file);
-    const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink,name', { method: 'POST', headers: { Authorization: 'Bearer ' + t }, body: fd });
+    const go = () => fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink,name', { method: 'POST', headers: { Authorization: 'Bearer ' + t }, body: fd });
+    let r; try { r = await go(); } catch (e) { await new Promise(z => setTimeout(z, 2000)); r = await go(); }
     if (r.status === 401) { sessionStorage.removeItem(TOK); throw new Error('ההרשאה לדרייב פגה — נסה שוב'); }
     if (!r.ok) throw new Error('העלאה לדרייב נכשלה: ' + r.status);
     return r.json();
