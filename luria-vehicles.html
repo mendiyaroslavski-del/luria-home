@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<!-- 🔒 קוד PIN לכל מערכות לוריא — אותו קוד בכל הדפים (נובמבר 2026) -->
+<style id="lf-lock-css">
+html.lf-locked body{display:none!important}
+#lf-lock{position:fixed;inset:0;z-index:2147483647;background:#14201a;color:#f3ead2;display:flex;align-items:center;justify-content:center;font-family:Heebo,Arial,sans-serif;direction:rtl}
+#lf-lock .bx{width:min(340px,88vw);text-align:center}
+#lf-lock h2{margin:0 0 6px;font-size:22px;color:#e2c46b}
+#lf-lock p{margin:0 0 18px;font-size:14px;opacity:.85;line-height:1.5}
+#lf-lock input{width:100%;box-sizing:border-box;font-size:28px;letter-spacing:10px;text-align:center;padding:12px;border-radius:12px;border:1px solid #6b5a2a;background:#0d1611;color:#fff;direction:ltr}
+#lf-lock button{margin-top:12px;width:100%;padding:12px;border-radius:12px;border:1px solid #e2c46b;background:#e2c46b;color:#14201a;font-size:16px;font-weight:700;cursor:pointer}
+#lf-lock button.ln{background:none;color:#cbbf9a;border:none;font-weight:400;font-size:13px;text-decoration:underline;margin-top:16px}
+#lf-lock .er{min-height:20px;margin-top:10px;font-size:14px;color:#ff8a80}
+@media print{#lf-lockbtn,#lf-lock{display:none!important}}
+#lf-lockbtn{position:fixed;bottom:14px;right:14px;z-index:2147483646;width:38px;height:38px;border-radius:50%;border:1px solid rgba(226,196,107,.5);background:rgba(20,32,26,.75);color:#e2c46b;font-size:17px;cursor:pointer;opacity:.7}
+</style>
+<script>
+(function () {
+  var K_PIN = 'luria_pin_v1', K_ACT = 'luria_pin_active', K_FAIL = 'luria_pin_fail';
+  var IDLE = 15 * 60 * 1000;             // ננעל אחרי 15 דקות בלי שימוש
+  var OWNER = 'lurietrogim@gmail.com';
+  var html = document.documentElement, box = null, lastW = 0;
+  function ls(k, v) { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return null; } }
+  function pin() { try { return JSON.parse(ls(K_PIN) || 'null'); } catch (e) { return null; } }
+  function fresh() { return Date.now() - (+ls(K_ACT) || 0) < IDLE; }
+  function touch() { var n = Date.now(); if (n - lastW > 20000 && !html.classList.contains('lf-locked')) { lastW = n; ls(K_ACT, String(n)); } }
+  function b64(buf) { return btoa(String.fromCharCode.apply(null, new Uint8Array(buf))); }
+  function unb64(s) { return Uint8Array.from(atob(s), function (c) { return c.charCodeAt(0); }); }
+  function hashPin(code, salt, it) {
+    var enc = new TextEncoder();
+    return crypto.subtle.importKey('raw', enc.encode(code), 'PBKDF2', false, ['deriveBits']).then(function (k) {
+      return crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: salt, iterations: it }, k, 256);
+    }).then(b64);
+  }
+  function show(mode) {
+    html.classList.add('lf-locked');
+    if (!box) { box = document.createElement('div'); box.id = 'lf-lock'; html.appendChild(box); }
+    var p = pin();
+    if (mode === 'setup' || !p) {
+      box.innerHTML = '<div class="bx"><h2>🔒 קוד כניסה למערכות לוריא</h2><p>בחר קוד של 4 עד 6 ספרות.<br>הקוד ישמש את כל המערכות במכשיר הזה.</p>' +
+        '<input id="lf-a" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="קוד חדש">' +
+        '<input id="lf-b" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="שוב, לאימות" style="margin-top:10px">' +
+        '<button id="lf-ok">שמור קוד</button><div class="er" id="lf-er"></div></div>';
+      var a = box.querySelector('#lf-a'), b2 = box.querySelector('#lf-b');
+      setTimeout(function () { a.focus(); }, 50);
+      box.querySelector('#lf-ok').onclick = function () {
+        var x = a.value.trim(), y = b2.value.trim(), er = box.querySelector('#lf-er');
+        if (!/^\d{4,6}$/.test(x)) { er.textContent = 'הקוד צריך להיות 4 עד 6 ספרות'; return; }
+        if (x !== y) { er.textContent = 'שני הקודים לא זהים'; b2.value = ''; b2.focus(); return; }
+        var salt = crypto.getRandomValues(new Uint8Array(16)), it = 150000;
+        hashPin(x, salt, it).then(function (h) {
+          ls(K_PIN, JSON.stringify({ s: b64(salt), h: h, i: it, l: x.length })); ls(K_FAIL, null); unlock();
+        });
+      };
+      return;
+    }
+    box.innerHTML = '<div class="bx"><h2>🔒 מערכות לוריא</h2><p>הקש את הקוד</p>' +
+      '<input id="lf-in" type="password" inputmode="numeric" autocomplete="off" maxlength="6">' +
+      '<button id="lf-ok">כניסה</button><div class="er" id="lf-er"></div>' +
+      '<button class="ln" id="lf-forgot">שכחתי את הקוד</button></div>';
+    var inp = box.querySelector('#lf-in'), er = box.querySelector('#lf-er');
+    setTimeout(function () { inp.focus(); }, 50);
+    function wait() { var f = {}; try { f = JSON.parse(ls(K_FAIL) || '{}'); } catch (e) {} return Math.max(0, (f.until || 0) - Date.now()); }
+    function check() {
+      var w = wait(); if (w) { er.textContent = 'יותר מדי ניסיונות — נסה שוב בעוד ' + Math.ceil(w / 1000) + ' שניות'; return; }
+      var code = inp.value.trim(); if (!code) return;
+      hashPin(code, unb64(p.s), p.i).then(function (h) {
+        if (h === p.h) { ls(K_FAIL, null); unlock(); return; }
+        var f = {}; try { f = JSON.parse(ls(K_FAIL) || '{}'); } catch (e) {}
+        f.n = (f.n || 0) + 1;
+        if (f.n >= 5) f.until = Date.now() + Math.min(3600000, 30000 * Math.pow(2, f.n - 5));
+        ls(K_FAIL, JSON.stringify(f));
+        inp.value = ''; er.textContent = f.until && f.until > Date.now() ? 'קוד שגוי. ננעל ל-' + Math.ceil((f.until - Date.now()) / 1000) + ' שניות' : 'קוד שגוי';
+      });
+    }
+    box.querySelector('#lf-ok').onclick = check;
+    inp.onkeydown = function (e) { if (e.key === 'Enter') check(); };
+    inp.oninput = function () { if (p.l && inp.value.length === p.l) check(); };
+    box.querySelector('#lf-forgot').onclick = function () { forgot(er); };
+  }
+  function forgot(er) {
+    er.style.color = '#cbbf9a'; er.textContent = 'נפתח חלון של גוגל — התחבר עם ' + OWNER;
+    var base = 'https://www.gstatic.com/firebasejs/12.18.0/';
+    Promise.all([import(base + 'firebase-app.js'), import(base + 'firebase-auth.js')]).then(function (m) {
+      var A = m[0], Au = m[1];
+      var app = A.getApps().length ? A.getApp() : A.initializeApp({ apiKey: 'AIzaSyDeEqKUSOUvlJadmkaJ_E9qx-BifkpnKg4', authDomain: 'luria-farm.firebaseapp.com', projectId: 'luria-farm', appId: '1:977449076829:web:2ef92d7bdb57690066a5b4' });
+      var pr = new Au.GoogleAuthProvider(); pr.setCustomParameters({ prompt: 'select_account', login_hint: OWNER });
+      return Au.signInWithPopup(Au.getAuth(app), pr);
+    }).then(function (r) {
+      if (String(r.user.email || '').toLowerCase() !== OWNER) { er.style.color = ''; er.textContent = 'רק החשבון ' + OWNER + ' יכול לאפס את הקוד'; return; }
+      ls(K_PIN, null); ls(K_FAIL, null); show('setup');
+    }).catch(function (e) { er.style.color = ''; er.textContent = 'האיפוס לא הצליח: ' + (e && (e.code || e.message) || e); });
+  }
+  function unlock() {
+    ls(K_ACT, String(Date.now())); lastW = Date.now();
+    html.classList.remove('lf-locked');
+    if (box) { box.remove(); box = null; }
+  }
+  window.luriaLock = function () { ls(K_ACT, '0'); show(); };
+  window.luriaChangePin = function () { show('setup'); };
+  if (!pin() || !fresh()) show(); else touch();
+  ['pointerdown', 'keydown', 'scroll', 'touchstart'].forEach(function (ev) { addEventListener(ev, touch, { passive: true, capture: true }); });
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && pin() && !fresh()) show(); });
+  setInterval(function () { if (pin() && !fresh() && !html.classList.contains('lf-locked')) show(); }, 30000);
+  addEventListener('storage', function (e) { if (e.key === K_PIN && !e.newValue) show('setup'); });
+  document.addEventListener('DOMContentLoaded', function () {
+    var b = document.createElement('button'); b.id = 'lf-lockbtn'; b.title = 'נעילה'; b.textContent = '🔒';
+    b.onclick = function () {
+      if (confirm('🔒 לנעול את המערכות עכשיו?')) { window.luriaLock(); return; }
+      if (confirm('לשנות את קוד הכניסה?')) window.luriaChangePin();
+    };
+    document.body.appendChild(b);
+  });
+})();
+</script>
+<!-- /🔒 -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>כלי רכב — אתרוגי לוריא</title>
+<meta name="theme-color" content="#0f2118">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@700;900&family=Heebo:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--deep:#0f2118;--forest:#1a3d2b;--mid:#2d6a4f;--light:#52b788;--pale:#d8f3dc;--gold:#c9a84c;--gold-light:#f5e6c3;--danger:#e07a5f;--warn:#f0b35a;--card:rgba(255,255,255,.05);--line:rgba(255,255,255,.1)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Heebo',sans-serif;background:var(--deep);color:#fff;min-height:100vh;direction:rtl}
+body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 80% 60% at 20% 0%,rgba(45,106,79,.22) 0%,transparent 60%),radial-gradient(ellipse 60% 60% at 100% 100%,rgba(201,168,76,.1) 0%,transparent 55%);pointer-events:none;z-index:0}
+.wrap{position:relative;z-index:1;max-width:820px;margin:0 auto;padding:16px 14px 80px}
+a{color:var(--gold)}
+.top{text-align:center;padding:10px 0 14px;position:relative}
+.top .home{position:absolute;right:0;top:12px;font-size:13px;color:rgba(255,255,255,.55);text-decoration:none}
+.top h1{font-family:'Frank Ruhl Libre',serif;font-weight:900;font-size:clamp(24px,6vw,30px);background:linear-gradient(135deg,#f5e6c3 0%,#c9a84c 45%,#f5e6c3 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.top .sub{font-size:13px;color:rgba(255,255,255,.5);margin-top:2px}
+.bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 12px;border-radius:12px;background:var(--card);border:1px solid var(--line);font-size:13px;margin-bottom:12px}
+.bar .grow{flex:1}
+.btn{font-family:inherit;font-size:14px;font-weight:700;border-radius:10px;padding:9px 14px;border:1px solid var(--gold);background:var(--gold);color:var(--deep);cursor:pointer;white-space:nowrap}
+.btn.sec{background:transparent;color:var(--gold)}
+.btn.sm{font-size:12px;padding:6px 10px}
+.btn.ghost{background:transparent;border-color:var(--line);color:rgba(255,255,255,.75)}
+.btn.red{background:transparent;border-color:var(--danger);color:var(--danger)}
+.btn:disabled{opacity:.5;cursor:default}
+.tabs{display:flex;gap:6px;margin-bottom:12px}
+.tab{flex:1;text-align:center;padding:9px;border-radius:10px;border:1px solid var(--line);background:var(--card);cursor:pointer;font-size:14px;color:rgba(255,255,255,.7)}
+.tab.on{border-color:var(--gold);color:var(--gold);background:rgba(201,168,76,.1);font-weight:700}
+.alerts{margin-bottom:12px;display:flex;flex-direction:column;gap:6px}
+.al{padding:9px 12px;border-radius:10px;font-size:13px;line-height:1.5;cursor:pointer}
+.al.red{background:rgba(224,122,95,.14);border:1px solid rgba(224,122,95,.4);color:#ffb4a2}
+.al.org{background:rgba(240,179,90,.12);border:1px solid rgba(240,179,90,.35);color:#ffd59a}
+.al.ok{background:rgba(82,183,136,.1);border:1px solid rgba(82,183,136,.3);color:var(--pale)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.wk{padding:14px;border-radius:14px;background:var(--card);border:1px solid var(--line);cursor:pointer;transition:border-color .2s}
+.wk:hover{border-color:rgba(201,168,76,.5)}
+.wk .nm{font-size:17px;font-weight:700}
+.wk .nn{font-size:13px;color:rgba(255,255,255,.55);margin-top:1px;direction:ltr;text-align:right}
+.wk .pills{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
+.pill{font-size:11px;padding:3px 8px;border-radius:20px;border:1px solid var(--line);color:rgba(255,255,255,.7);white-space:nowrap}
+.pill.red{border-color:rgba(224,122,95,.5);color:#ffb4a2;background:rgba(224,122,95,.12)}
+.pill.org{border-color:rgba(240,179,90,.5);color:#ffd59a;background:rgba(240,179,90,.1)}
+.pill.ok{border-color:rgba(82,183,136,.4);color:var(--pale)}
+.pill.off{opacity:.55}
+.empty{text-align:center;padding:40px 10px;color:rgba(255,255,255,.5);font-size:14px;line-height:1.8}
+/* screen: worker */
+.hd{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.hd .t{flex:1}
+.hd .t b{font-size:20px;display:block}
+.hd .t span{font-size:13px;color:rgba(255,255,255,.55)}
+.box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.box h3{font-size:15px;color:var(--gold);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.box h3 .grow{flex:1}
+.fg{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:rgba(255,255,255,.6)}
+label.f input,label.f select,label.f textarea{font-family:inherit;font-size:15px;padding:9px 10px;border-radius:9px;border:1px solid rgba(255,255,255,.15);background:rgba(0,0,0,.25);color:#fff;width:100%}
+label.f input[type=date],label.f input[type=month]{direction:ltr;text-align:right;color-scheme:dark}
+label.f .ltr{direction:ltr;text-align:right}
+.cats{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.cat{font-size:13px;padding:6px 10px;border-radius:20px;border:1px solid var(--line);cursor:pointer;color:rgba(255,255,255,.7);background:transparent;font-family:inherit}
+.cat.on{border-color:var(--gold);color:var(--gold);background:rgba(201,168,76,.1)}
+.cat .n{opacity:.6;font-size:11px;margin-right:3px}
+.doc{display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;border:1px solid var(--line);margin-bottom:6px;background:rgba(0,0,0,.15)}
+.doc .ic{font-size:20px}
+.doc .i{flex:1;min-width:0}
+.doc .i b{display:block;font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.doc .i span{font-size:12px;color:rgba(255,255,255,.55)}
+/* monthly */
+table.mt{width:100%;border-collapse:collapse;font-size:13px}
+table.mt th,table.mt td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:center}
+table.mt th:first-child,table.mt td:first-child{text-align:right}
+table.mt th{color:var(--gold);font-weight:500;font-size:12px}
+.y{color:var(--light)}.n{color:var(--danger)}
+.scroll{overflow-x:auto}
+/* modal */
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:50;display:none;align-items:flex-end;justify-content:center}
+.ov.on{display:flex}
+.md{background:#13281d;border:1px solid rgba(201,168,76,.3);border-radius:18px 18px 0 0;width:100%;max-width:620px;max-height:92vh;overflow-y:auto;padding:18px 16px 26px}
+@media(min-width:700px){.ov{align-items:center}.md{border-radius:18px}}
+.md h2{font-size:18px;color:var(--gold);margin-bottom:12px;display:flex;align-items:center}
+.md h2 .x{margin-right:auto;background:none;border:none;color:#fff;font-size:20px;cursor:pointer}
+.row{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.row .btn{flex:1}
+.note{font-size:12px;color:rgba(255,255,255,.55);line-height:1.6;margin-top:8px}
+.drop{border:2px dashed rgba(201,168,76,.4);border-radius:12px;padding:18px;text-align:center;cursor:pointer;font-size:14px;color:rgba(255,255,255,.75)}
+.drop input{display:none}
+.chk{display:flex;align-items:center;gap:8px;font-size:14px;margin-top:10px}
+.wsel{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.wsel label{font-size:13px;padding:5px 10px;border:1px solid var(--line);border-radius:20px;display:flex;gap:5px;align-items:center}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1f3d2c;border:1px solid var(--gold);color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;z-index:99;display:none;max-width:90vw;text-align:center}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:var(--gold);border-radius:50%;animation:sp 1s linear infinite;vertical-align:middle}
+@keyframes sp{to{transform:rotate(360deg)}}
+.gate{text-align:center;padding:50px 16px}
+.gate p{color:rgba(255,255,255,.65);font-size:14px;line-height:1.8;margin:12px 0 18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="home" href="index.html">→ ראשי</a>
+    <h1>ניהול כלי רכב</h1>
+    <div class="sub">אתרוגי לוריא בע"מ · רישיונות, טסטים, ביטוחים וטיפולים</div>
+  </div>
+  <div class="bar" id="bar"></div>
+  <div id="app"></div>
+</div>
+
+<div class="ov" id="ov"><div class="md" id="md"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ======================= נתונים ותצוגה ======================= */
+const CATS = [
+  { k: 'lic',   t: 'רישיון רכב',     ic: '🪪', exp: true },
+  { k: 'test',  t: 'טסט שנתי',       ic: '🔧', exp: true },
+  { k: 'ins1',  t: 'ביטוח חובה',     ic: '🛡️', exp: true },
+  { k: 'ins2',  t: 'ביטוח מקיף / צד ג׳', ic: '📑', exp: true },
+  { k: 'serv',  t: 'טיפולים ותיקונים', ic: '🛠️', cost: true },
+  { k: 'fine',  t: 'דוחות וקנסות',    ic: '🚨', cost: true },
+  { k: 'other', t: 'אחר',            ic: '📎' }
+];
+const CAT = Object.fromEntries(CATS.map(c => [c.k, c]));
+const FIELDS = [
+  ['nick', 'כינוי (למשל "טרקטור ג׳ון דיר הגדול")', 'text'], ['type', 'סוג', 'vtype'],
+  ['plate', 'מספר רישוי', 'text', 'ltr'], ['make', 'יצרן ודגם', 'text'],
+  ['year', 'שנת ייצור', 'number'], ['owner', 'בעלות', 'text'],
+  ['licExp', 'תוקף רישיון רכב', 'date'], ['testDate', 'מועד טסט הבא', 'date'],
+  ['ins1Exp', 'תוקף ביטוח חובה', 'date'], ['ins2Exp', 'תוקף ביטוח מקיף / צד ג׳', 'date'],
+  ['insCo', 'חברת ביטוח', 'text'], ['insNo', 'מספר פוליסה', 'text', 'ltr'],
+  ['servNext', 'טיפול הבא (תאריך)', 'date'], ['meter', 'שעות מנוע / ק"מ אחרון', 'text'],
+  ['driver', 'נהג קבוע', 'text'], ['status', 'סטטוס', 'select'],
+  ['end', 'תאריך מכירה / גריטה', 'date'], ['notes', 'הערות', 'textarea']
+];
+const VTYPES = ['טרקטור', 'רינג׳ר / טרקטורון', 'רכב פרטי', 'רכב מסחרי', 'אחר'];
+const EXPF = [['licExp', 'רישיון'], ['testDate', 'טסט'], ['ins1Exp', 'ביטוח חובה'], ['ins2Exp', 'ביטוח מקיף'], ['servNext', 'טיפול']];
+const S = { items: {}, docs: {}, meta: {} };   // מתמלא מהענן
+let view = { tab: 'list', wid: null, cat: 'lic' };
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const today = () => new Date().toISOString().slice(0, 10);
+const dmy = d => d ? d.split('-').reverse().join('/') : '';
+const ym = d => { const [y, m] = d.split('-'); return m + '/' + y.slice(2); };
+const daysTo = d => d ? Math.floor((new Date(d + 'T12:00') - new Date(today() + 'T12:00')) / 864e5) : null;
+const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const active = () => Object.values(S.items).filter(p => p.status !== 'left').sort((a, b) => label(a).localeCompare(label(b), 'he'));
+const allItems = () => Object.values(S.items).sort((a, b) => (a.status === 'left') - (b.status === 'left') || label(a).localeCompare(label(b), 'he'));
+const label = p => p ? (p.nick || p.make || p.plate || 'כלי רכב') : '';
+const vic = p => ({ 'טרקטור': '🚜', 'רינג׳ר / טרקטורון': '🛻', 'רכב פרטי': '🚗', 'רכב מסחרי': '🚚' }[p.type] || '🚙');
+const since = p => (p.start || p.created || '').slice(0, 7);
+const docsOf = (wid, cat) => Object.values(S.docs).filter(d => d.wid === wid && (!cat || d.cat === cat)).sort((a, b) => (b.period || b.date || '').localeCompare(a.period || a.date || ''));
+function toast(t, ms) { const e = $('toast'); e.textContent = t; e.style.display = 'block'; clearTimeout(toast._t); toast._t = setTimeout(() => e.style.display = 'none', ms || 3200); }
+function lastMonths(n) { const r = [], d = new Date(); d.setDate(1); for (let i = 0; i < n; i++) { d.setMonth(d.getMonth() - 1); r.push(d.toISOString().slice(0, 7)); } return r; }
+
+function expPill(title, d) {
+  if (!d) return `<span class="pill off">${title}: חסר</span>`;
+  const n = daysTo(d);
+  const cls = n < 0 ? 'red' : n <= 30 ? 'red' : n <= 60 ? 'org' : 'ok';
+  const txt = n < 0 ? '⛔ ' + dmy(d) : 'עד ' + dmy(d);
+  return `<span class="pill ${cls}">${title}: ${txt}</span>`;
+}
+
+function alertsHtml() {
+  const out = [];
+  active().forEach(p => {
+    EXPF.forEach(([f, t]) => {
+      const n = daysTo(p[f]);
+      if (n === null) return;
+      const what = { licExp: 'הרישיון', testDate: 'הטסט', ins1Exp: 'ביטוח החובה', ins2Exp: 'הביטוח המקיף', servNext: 'הטיפול' }[f];
+      if (n < 0) out.push({ c: 'red', w: p.id, s: `⛔ ${esc(label(p))} — ${f === 'servNext' || f === 'testDate' ? what + ' היה אמור להיות ב-' : what + ' פג בתאריך '}${dmy(p[f])}` });
+      else if (n <= 45) out.push({ c: n <= 14 ? 'red' : 'org', w: p.id, s: `⚠️ ${esc(label(p))} — ${f === 'servNext' || f === 'testDate' ? what + ' ב-' : what + ' בתוקף עד '}${dmy(p[f])} (עוד ${n} ימים)` });
+    });
+  });
+  if (!out.length && active().length) return `<div class="alerts"><div class="al ok">✅ כל הרישיונות והביטוחים בתוקף</div></div>`;
+  return `<div class="alerts">${out.map(a => `<div class="al ${a.c}" onclick="openWorker('${a.w}')">${a.s}</div>`).join('')}</div>`;
+}
+function render() {
+  if (!window.Cloud || !Cloud.ready) { $('app').innerHTML = gateHtml(); return; }
+  if (view.wid && S.items[view.wid]) return renderWorker();
+  view.wid = null;
+  const tabs = `<div class="tabs"><div class="tab ${view.tab === 'list' ? 'on' : ''}" onclick="setTab('list')">🚜 כלי רכב</div><div class="tab ${view.tab === 'month' ? 'on' : ''}" onclick="setTab('month')">📅 טבלת תוקפים</div></div>`;
+  let body = '';
+  if (view.tab === 'month') body = monthHtml();
+  else {
+    const ps = allItems();
+    body = `<div style="display:flex;gap:8px;margin-bottom:10px"><button class="btn" onclick="editWorker()">➕ כלי רכב חדש</button><button class="btn sec" onclick="uploadDialog()">📤 העלאת מסמך</button></div>` +
+      (ps.length ? `<div class="grid">${ps.map(p => {
+        const cnt = docsOf(p.id).length;
+        return `<div class="wk" onclick="openWorker('${p.id}')" style="${p.status === 'left' ? 'opacity:.5' : ''}">
+          <div class="nm">${vic(p)} ${esc(label(p))}${p.status === 'left' ? ' <span class="pill">נמכר</span>' : ''}</div>
+          <div class="nn">${esc([p.plate, p.make, p.year].filter(Boolean).join(' · '))}</div>
+          <div class="pills">${p.status === 'left' ? '' : EXPF.filter(([f]) => f !== 'ins2Exp' || p[f]).map(([f, t]) => expPill(t, p[f])).join('')}<span class="pill">📁 ${cnt} מסמכים</span></div>
+        </div>`; }).join('')}</div>`
+        : `<div class="empty">עדיין אין כלי רכב במערכת.<br>לחץ "➕ כלי רכב חדש" כדי להוסיף את הראשון.</div>`);
+  }
+  $('app').innerHTML = alertsHtml() + tabs + body;
+}
+function setTab(t) { view.tab = t; view.wid = null; render(); scrollTo(0, 0); }
+
+function monthHtml() {
+  const ps = active();
+  if (!ps.length) return `<div class="empty">אין כלי רכב פעילים</div>`;
+  const cell = (p, f) => {
+    const d = p[f]; if (!d) return '<td style="opacity:.4">—</td>';
+    const n = daysTo(d); const col = n < 0 || n <= 14 ? 'var(--danger)' : n <= 45 ? 'var(--warn)' : 'var(--light)';
+    return `<td style="color:${col};cursor:pointer" onclick="openWorker('${p.id}')">${dmy(d).slice(0, 6) + dmy(d).slice(8)}</td>`;
+  };
+  return `<div class="box"><h3>📅 כל התוקפים במבט אחד</h3><div class="scroll"><table class="mt">
+    <tr><th>כלי רכב</th>${EXPF.map(([, t]) => `<th>${t}</th>`).join('')}</tr>
+    ${ps.map(p => `<tr><td>${vic(p)} ${esc(label(p))}</td>${EXPF.map(([f]) => cell(p, f)).join('')}</tr>`).join('')}
+  </table></div><div class="note">ירוק = בתוקף · כתום = פחות מ-45 יום · אדום = פחות משבועיים או פג. לחיצה פותחת את כלי הרכב.</div></div>
+  <div class="box"><h3>🛠️ הוצאות טיפולים וקנסות — ${new Date().getFullYear()}</h3><div class="scroll"><table class="mt">
+    <tr><th>כלי רכב</th><th>טיפולים</th><th>קנסות</th></tr>
+    ${ps.map(p => { const y = String(new Date().getFullYear()); const sum = c => docsOf(p.id, c).filter(d => (d.docDate || d.date || '').startsWith(y)).reduce((a, d) => a + (+d.cost || 0), 0);
+      return `<tr><td>${esc(label(p))}</td><td>₪${sum('serv').toLocaleString()}</td><td>₪${sum('fine').toLocaleString()}</td></tr>`; }).join('')}
+  </table></div></div>`;
+}
+function renderWorker() {
+  const p = S.items[view.wid];
+  const cnt = k => docsOf(p.id, k).length;
+  const ds = docsOf(p.id, view.cat);
+  const c = CAT[view.cat];
+  $('app').innerHTML = `
+  <div class="hd"><button class="btn ghost sm" onclick="view.wid=null;render()">→ חזרה</button>
+    <div class="t"><b>${vic(p)} ${esc(label(p))}</b><span>${esc([p.type, p.plate, p.make, p.year].filter(Boolean).join(' · '))}</span></div>
+    <button class="btn sec sm" onclick="editWorker('${p.id}')">✏️ פרטים</button></div>
+  ${p.status === 'left' ? '<div class="alerts"><div class="al org">מסומן כ"נמכר / לא בשימוש"' + (p.end ? ' — ' + dmy(p.end) : '') + '</div></div>' : `<div class="pills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${EXPF.map(([f, t]) => expPill(t, p[f])).join('')}</div>`}
+  <div class="box">
+    <h3>📁 תיק מסמכים<span class="grow"></span>${p.folder ? `<a class="btn ghost sm" href="https://drive.google.com/drive/folders/${p.folder}" target="_blank">פתח בדרייב</a>` : ''}</h3>
+    <div class="cats">${CATS.map(k => `<button class="cat ${k.k === view.cat ? 'on' : ''}" onclick="view.cat='${k.k}';render()">${k.ic} ${k.t}<span class="n">${cnt(k.k) || ''}</span></button>`).join('')}</div>
+    <button class="btn" style="width:100%;margin-bottom:10px" onclick="uploadDialog('${p.id}','${view.cat}')">📤 העלאת ${c.t}</button>
+    ${ds.length ? ds.map(docRow).join('') : `<div class="empty" style="padding:20px">אין עדיין ${c.t}</div>`}
+  </div>
+  <div class="box"><h3>📋 פרטים</h3><div class="fg">${FIELDS.filter(f => !['notes', 'status', 'end'].includes(f[0]) && p[f[0]]).map(f => `<div><div style="font-size:11px;color:rgba(255,255,255,.5)">${f[1]}</div><div style="font-size:15px;${f[3] ? 'direction:ltr;text-align:right' : ''}">${esc(f[2] === 'date' ? dmy(p[f[0]]) : p[f[0]])}</div></div>`).join('') || '<div class="note">לחץ "✏️ פרטים" כדי למלא</div>'}</div>${p.notes ? `<div class="note" style="white-space:pre-wrap">${esc(p.notes)}</div>` : ''}</div>`;
+}
+function docRow(d) {
+  const c = CAT[d.cat] || CAT.other;
+  const sub = [d.docDate ? dmy(d.docDate) : '', d.exp ? 'בתוקף עד ' + dmy(d.exp) : '', d.cost ? '₪' + (+d.cost).toLocaleString() : '', d.meter ? 'מונה ' + esc(d.meter) : '', d.date ? 'הועלה ' + dmy(d.date) : ''].filter(Boolean).join(' · ');
+  return `<div class="doc"><div class="ic">${c.ic}</div><div class="i"><b>${esc(d.title || d.fname || c.t)}</b><span>${sub}</span></div>
+    <button class="btn sec sm" onclick="openDoc('${d.id}')">פתח</button><button class="btn ghost sm" onclick="removeDoc('${d.id}')" title="הסר מהרשימה">✕</button></div>`;
+}
+function openWorker(id) { view.wid = id; view.cat = 'lic'; render(); scrollTo(0, 0); }
+function openDoc(id) { const d = S.docs[id]; if (d && d.link) window.open(d.link, '_blank'); }
+async function removeDoc(id) {
+  const d = S.docs[id]; if (!d) return;
+  if (!confirm(`להסיר את "${d.title || d.fname}" מהרשימה?\n\nהקובץ עצמו נשאר בדרייב ולא נמחק.`)) return;
+  await Cloud.del('docs', id); toast('הוסר מהרשימה (הקובץ נשאר בדרייב)');
+}
+
+/* ---------- עריכת עובד ---------- */
+function editWorker(id) {
+  const p = id ? S.items[id] : { type: 'טרקטור', owner: 'אתרוגי לוריא בע"מ', status: 'active' };
+  $('md').innerHTML = `<h2>${id ? '✏️ פרטי כלי רכב' : '➕ כלי רכב חדש'}<button class="x" onclick="closeMd()">✕</button></h2>
+  <div class="fg">${FIELDS.map(([k, t, ty, dir]) => {
+    if (ty === 'select') return `<label class="f">${t}<select id="f_${k}"><option value="active">בשימוש</option><option value="left" ${p.status === 'left' ? 'selected' : ''}>נמכר / לא בשימוש</option></select></label>`;
+    if (ty === 'vtype') return `<label class="f">${t}<select id="f_${k}">${VTYPES.map(v => `<option ${p.type === v ? 'selected' : ''}>${v}</option>`).join('')}</select></label>`;
+    if (ty === 'textarea') return `<label class="f" style="grid-column:1/-1">${t}<textarea id="f_${k}" rows="3">${esc(p[k])}</textarea></label>`;
+    return `<label class="f">${t}<input id="f_${k}" type="${ty}" value="${esc(p[k])}" ${dir ? 'class="ltr"' : ''}></label>`;
+  }).join('')}</div>
+  <div class="note">אפשר למלא רק כינוי ולהשלים אחר כך. כשמעלים רישיון, טסט או ביטוח, תאריכי התוקף מתמלאים לבד.</div>
+  <div class="row"><button class="btn" onclick="saveWorker('${id || ''}')">💾 שמירה</button>${id ? `<button class="btn red" onclick="deleteWorker('${id}')">מחיקה</button>` : ''}</div>`;
+  openMd();
+}
+async function saveWorker(id) {
+  const p = id ? { ...S.items[id] } : { id: uid('w'), created: today() };
+  FIELDS.forEach(([k]) => { const v = $('f_' + k).value.trim(); if (v) p[k] = v; else delete p[k]; });
+  if (!p.nick && !p.plate && !p.make) { toast('צריך לפחות כינוי או מספר רישוי'); return; }
+  if (!p.status) p.status = 'active';
+  await Cloud.put('items', p.id, p);
+  closeMd(); view.wid = p.id; render(); toast('נשמר ✓');
+}
+async function deleteWorker(id) {
+  const p = S.items[id];
+  if (!confirm(`למחוק את ${label(p)} מהמערכת?\n\nעדיף לסמן "נמכר" בסטטוס — כך ההיסטוריה נשמרת.\nהקבצים בדרייב לא נמחקים בכל מקרה.`)) return;
+  if (prompt('כדי לאשר מחיקה הקלד: מחק') !== 'מחק') return;
+  for (const d of docsOf(id)) await Cloud.del('docs', d.id);
+  await Cloud.del('items', id);
+  closeMd(); view.wid = null; render(); toast('נמחק');
+}
+
+/* ---------- העלאת מסמך ---------- */
+let UP = null;
+function uploadDialog(wid, cat, period) {
+  if (!active().length && !wid) { toast('קודם מוסיפים כלי רכב'); return; }
+  UP = { wid: wid || '', cat: cat || 'pay', period: period || lastMonths(1)[0], files: [], multi: [] };
+  drawUpload(); openMd();
+}
+function drawUpload() {
+  const c = CAT[UP.cat];
+  const ps = active();
+  const hasKey = !!localStorage.getItem('luria_api_key');
+  $('md').innerHTML = `<h2>📤 העלאת מסמך<button class="x" onclick="closeMd()">✕</button></h2>
+  <div class="fg">
+    <label class="f">סוג מסמך<select id="u_cat" onchange="UP.cat=this.value;drawUpload()">${CATS.map(k => `<option value="${k.k}" ${k.k === UP.cat ? 'selected' : ''}>${k.ic} ${k.t}</option>`).join('')}</select></label>
+    <label class="f">כלי רכב<select id="u_wid" onchange="UP.wid=this.value">${UP.multiOn ? '<option>כמה עובדים — סמן למטה</option>' : `<option value="">${hasKey ? '🤖 זיהוי אוטומטי מהמסמך' : '— בחר —'}</option>` + ps.map(p => `<option value="${p.id}" ${p.id === UP.wid ? 'selected' : ''}>${esc(label(p))}</option>`).join('')}</select></label>
+    ${c.period ? `<label class="f">חודש<input id="u_period" type="month" value="${UP.period}" onchange="UP.period=this.value"></label>` : ''}
+    ${c.exp ? `<label class="f">בתוקף עד<input id="u_exp" type="date" value="${UP.exp || ''}" onchange="UP.exp=this.value"></label>` : ''}
+    ${c.cost ? `<label class="f">סכום ₪<input id="u_cost" type="number" inputmode="decimal" value="${UP.cost || ''}" onchange="UP.cost=this.value"></label><label class="f">שעות מנוע / ק"מ<input id="u_meter" type="text" value="${UP.meter || ''}" onchange="UP.meter=this.value"></label>` : ''}
+  </div>
+  ${c.period ? `<label class="chk"><input type="checkbox" ${UP.multiOn ? 'checked' : ''} onchange="UP.multiOn=this.checked;drawUpload()"> הקובץ כולל כמה עובדים (למשל כל התלושים בקובץ אחד)</label>
+    ${UP.multiOn ? `<div class="wsel">${ps.map(p => `<label><input type="checkbox" value="${p.id}" ${UP.multi.includes(p.id) || !UP.multi.length ? 'checked' : ''} class="u_m"> ${esc(label(p))}</label>`).join('')}</div>` : ''}` : ''}
+  <div class="drop" style="margin-top:12px" onclick="this.querySelector('input').click()">
+    <input type="file" id="u_file" accept="application/pdf,image/*" multiple onchange="UP.files=[...this.files];drawFiles()">
+    <div id="u_files">📎 לחץ לבחירת קובץ או צילום<br><span style="font-size:12px;opacity:.6">PDF או תמונה · אפשר כמה קבצים</span></div>
+  </div>
+  ${hasKey ? `<label class="chk"><input type="checkbox" id="u_ai" checked> 🤖 Claude יקרא את המסמך וימלא תוקף / סכום / כלי רכב</label>` : `<div class="note">💡 אם מגדירים מפתח Claude במערכת החשבוניות, המסמכים ייקראו אוטומטית.</div>`}
+  <div class="row"><button class="btn" id="u_go" onclick="doUpload()">📤 העלאה לדרייב ושמירה</button></div>
+  <div class="note" id="u_st"></div>`;
+  if (UP.files.length) drawFiles();
+}
+function drawFiles() { $('u_files').innerHTML = UP.files.map(f => '📄 ' + esc(f.name)).join('<br>'); }
+
+async function doUpload() {
+  if (!UP.files.length) { toast('בחר קובץ'); return; }
+  const c = CAT[UP.cat];
+  const useAi = $('u_ai') && $('u_ai').checked;
+  const multi = UP.multiOn ? [...document.querySelectorAll('.u_m')].filter(x => x.checked).map(x => x.value) : null;
+  if (UP.multiOn && !multi.length) { toast('סמן לפחות כלי אחד'); return; }
+  if (!multi && !UP.wid && !useAi) { toast('בחר כלי רכב'); return; }
+  const st = $('u_st'), go = $('u_go'); go.disabled = true;
+  try {
+    st.innerHTML = '<span class="spin"></span> מתחבר לדרייב…';
+    await Drive.token();
+    let n = 0;
+    for (const file of UP.files) {
+      n++;
+      const pre = UP.files.length > 1 ? `(${n}/${UP.files.length}) ` : '';
+      let info = {};
+      if (useAi) { st.innerHTML = `<span class="spin"></span> ${pre}Claude קורא את ${esc(file.name)}…`; info = await AI.read(file, UP.cat).catch(e => { console.warn(e); return { _err: e.message }; }); }
+      const cat = UP.cat;
+      const period = c.period ? (info.period && /^\d{4}-\d{2}$/.test(info.period) ? info.period : ($('u_period') || {}).value) : '';
+      const exp = c.exp ? (($('u_exp') || {}).value || (/^\d{4}-\d{2}-\d{2}$/.test(info.expiry || '') ? info.expiry : '')) : '';
+      let wid = multi ? null : (UP.wid || matchWorker(info));
+      if (!multi && !wid) { st.innerHTML = `⚠️ ${pre}לא זוהה כלי הרכב ב-${esc(file.name)} — בחר ידנית ולחץ שוב`; go.disabled = false; UP.files = UP.files.slice(n - 1); return; }
+      const ext = (file.name.split('.').pop() || 'pdf').toLowerCase();
+      const owner = multi ? null : S.items[wid];
+      const ddate = /^\d{4}-\d{2}-\d{2}$/.test(info.docDate || '') ? info.docDate : '';
+      const title = c.t + (period ? ' ' + ym(period + '-01') : '') + (exp ? ' עד ' + dmy(exp) : (c.cost && ddate ? ' ' + dmy(ddate) : ''));
+      const fname = (owner ? label(owner) + ' - ' : '') + title.replace(/\//g, '-') + '.' + ext;
+      st.innerHTML = `<span class="spin"></span> ${pre}מעלה לדרייב…`;
+      const folder = multi ? await Drive.sharedFolder(cat) : await Drive.workerFolder(owner, cat);
+      const up = await Drive.upload(file, fname, folder);
+      const targets = multi || [wid];
+      for (const w of targets) {
+        const d = { id: uid('d'), wid: w, cat, title, fname, fileId: up.id, link: up.webViewLink || ('https://drive.google.com/file/d/' + up.id + '/view'), date: today() };
+        if (period) d.period = period; if (exp) d.exp = exp; if (multi) d.shared = true;
+        const cost = (($('u_cost') || {}).value) || info.amount; if (c.cost && cost && isFinite(+cost)) d.cost = +cost;
+        const meter = (($('u_meter') || {}).value) || info.meter; if (meter) d.meter = String(meter);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(info.docDate || '')) d.docDate = info.docDate;
+        await Cloud.put('docs', d.id, d);
+        await applyToWorker(w, cat, info, exp);
+      }
+    }
+    st.innerHTML = '✅ הועלה ונשמר';
+    toast('✅ המסמך נשמר בתיק כלי הרכב ובדרייב');
+    setTimeout(() => { closeMd(); render(); }, 700);
+  } catch (e) {
+    console.error(e); go.disabled = false;
+    st.innerHTML = '❌ ' + esc(e.message || e);
+  }
+}
+function matchWorker(info) {
+  const pl = String(info.plate || '').replace(/\D/g, '');
+  if (pl) { const hit = active().find(p => String(p.plate || '').replace(/\D/g, '') === pl); if (hit) return hit.id; }
+  const ch = String(info.chassis || '').replace(/\s/g, '').toUpperCase();
+  if (ch) { const hit = active().find(p => p.chassis && String(p.chassis).replace(/\s/g, '').toUpperCase() === ch); if (hit) return hit.id; }
+  return null;
+}
+async function applyToWorker(wid, cat, info, exp) {
+  const p = { ...S.items[wid] }; let ch = false;
+  const later = (f, v) => { if (v && /^\d{4}-\d{2}-\d{2}$/.test(v) && (!p[f] || v > p[f])) { p[f] = v; ch = true; } };
+  const fill = (f, v) => { if (v && !p[f]) { p[f] = String(v); ch = true; } };
+  fill('plate', info.plate); fill('make', info.make); fill('chassis', info.chassis);
+  if (cat === 'lic') later('licExp', exp);
+  if (cat === 'test') { later('testDate', exp); later('licExp', info.licExpiry); }
+  if (cat === 'ins1') { later('ins1Exp', exp); fill('insCo', info.company); }
+  if (cat === 'ins2') { later('ins2Exp', exp); fill('insCo', info.company); fill('insNo', info.docNumber); }
+  if (cat === 'serv') { later('servNext', info.nextService); if (info.meter) { p.meter = String(info.meter); ch = true; } }
+  if (ch) await Cloud.put('items', wid, p);
+}
+
+/* ---------- Claude ---------- */
+const AI = {
+  async read(file, cat) {
+    const key = localStorage.getItem('luria_api_key'); if (!key) return {};
+    const b64 = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = no; r.readAsDataURL(file); });
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    const mt = isPdf ? 'application/pdf' : (/^image\/(jpeg|png|gif|webp)$/.test(file.type) ? file.type : 'image/jpeg');
+    const src = isPdf ? { type: 'document', source: { type: 'base64', media_type: mt, data: b64 } } : { type: 'image', source: { type: 'base64', media_type: mt, data: b64 } };
+    const names = active().map(p => label(p) + (p.plate ? ' [' + p.plate + ']' : '')).join(' | ');
+    const prompt = `זה מסמך של כלי רכב של חווה בישראל (טרקטור, רינג׳ר או רכב). סוג המסמך המשוער: ${CAT[cat].t}.
+החזר JSON בלבד, בלי טקסט נוסף:
+{"plate":"מספר הרישוי (ספרות בלבד) או null","chassis":"מספר שלדה או null","make":"יצרן ודגם או null","docNumber":"מספר פוליסה / מסמך או null","docDate":"תאריך המסמך YYYY-MM-DD או null","expiry":"תאריך תפוגה / תוקף עד YYYY-MM-DD (לרישיון, טסט וביטוח) או null","licExpiry":"אם זה טסט ומופיע תוקף רישיון — YYYY-MM-DD או null","company":"חברת ביטוח או null","amount":"סכום לתשלום ₪ — מספר או null","meter":"שעות מנוע או קילומטראז׳ — מספר או null","nextService":"מועד טיפול הבא YYYY-MM-DD או null"}
+כלי הרכב הקיימים: ${names}`;
+    const models = ['claude-sonnet-5-5', 'claude-sonnet-5', 'claude-sonnet-4-5'];
+    let last = '';
+    for (const model of models) {
+      const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model, max_tokens: 800, messages: [{ role: 'user', content: [src, { type: 'text', text: prompt }] }] }) });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { const t = (j.content || []).map(x => x.text || '').join(''); const m = t.match(/\{[\s\S]*\}/); return m ? JSON.parse(m[0]) : {}; }
+      last = (j.error && j.error.message) || r.status;
+      if (!(r.status === 404 || (r.status === 400 && /model/i.test(last)))) break;
+    }
+    throw new Error('Claude: ' + last);
+  }
+};
+
+function gateHtml() {
+  const st = window.Cloud ? Cloud.state : 'loading';
+  if (st === 'loading') return `<div class="gate"><span class="spin"></span></div>`;
+  return `<div class="gate"><div style="font-size:42px">🚜</div><p>המערכת שמורה בענן של לוריא.<br>כדי להיכנס מתחברים פעם אחת עם החשבון <b>Lurietrogim@gmail.com</b>.</p>
+    <button class="btn" onclick="Cloud.signIn()">🔐 התחברות עם Google</button><div class="note" id="gate_err" style="color:#ffb4a2">${esc(Cloud.err || '')}</div></div>`;
+}
+function openMd() { $('ov').classList.add('on'); }
+function closeMd() { $('ov').classList.remove('on'); }
+$('ov').addEventListener('click', e => { if (e.target.id === 'ov') closeMd(); });
+
+function drawBar() {
+  const C = window.Cloud;
+  if (!C || C.state === 'loading') { $('bar').innerHTML = '<span class="spin"></span> טוען…'; return; }
+  if (!C.ready) { $('bar').innerHTML = '☁️ לא מחובר'; return; }
+  $('bar').innerHTML = `<span>${C.pending ? '<span class="spin"></span> שומר…' : (navigator.onLine ? '☁️ מחובר ומסונכרן' : '📴 אין אינטרנט — יישמר כשיחזור')}</span><span class="grow"></span>
+    <button class="btn ghost sm" onclick="exportJson()">⬇️ גיבוי</button>`;
+}
+function exportJson() {
+  const blob = new Blob([JSON.stringify({ exported: new Date().toISOString(), items: S.items, docs: S.docs }, null, 1)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'luria-vehicles-backup-' + today() + '.json'; a.click();
+}
+addEventListener('online', drawBar); addEventListener('offline', drawBar);
+render(); drawBar();
+</script>
+
+<script type="module">
+/* ======================= ענן (Firestore) + דרייב ======================= */
+const OWNER = 'lurietrogim@gmail.com';
+const FB = 'https://www.gstatic.com/firebasejs/12.18.0/';
+const CFG = { apiKey: 'AIzaSyDeEqKUSOUvlJadmkaJ_E9qx-BifkpnKg4', authDomain: 'luria-farm.firebaseapp.com', projectId: 'luria-farm', storageBucket: 'luria-farm.firebasestorage.app', messagingSenderId: '977449076829', appId: '1:977449076829:web:2ef92d7bdb57690066a5b4' };
+const ROOT_NAME = 'כלי רכב — לוריא';
+let F, auth, db;
+const isOwner = u => !!u && String(u.email || '').toLowerCase() === OWNER;
+
+const Cloud = window.Cloud = {
+  state: 'loading', ready: false, pending: 0, err: '',
+  ref(col, id) { return id === undefined ? F.doc(db, 'vehicles', 'main') : F.doc(db, 'vehicles', 'main', col, id); },
+  _track(pr) { this.pending++; drawBar(); pr.catch(e => { console.error(e); toast('❌ השמירה בענן נכשלה: ' + (e.code || e.message), 6000); }).finally(() => { this.pending--; drawBar(); }); return Promise.resolve(); },
+  put(col, id, v) { S[col] = { ...S[col], [id]: v }; return this._track(F.setDoc(this.ref(col, id), JSON.parse(JSON.stringify(v)))); },
+  del(col, id) { const o = { ...S[col] }; delete o[id]; S[col] = o; return this._track(F.deleteDoc(this.ref(col, id))); },
+  async putMeta(v) { await F.setDoc(this.ref(), v, { merge: true }); },
+  async signIn() {
+    try { const p = new F.GoogleAuthProvider(); p.setCustomParameters({ prompt: 'select_account', login_hint: OWNER }); await F.signInWithPopup(auth, p); }
+    catch (e) { this.err = 'ההתחברות לא הצליחה: ' + (e.code || e.message); render(); }
+  }
+};
+
+function start() {
+  let first = { items: false, docs: false, meta: false };
+  const done = () => { if (first.items && first.docs && first.meta && !Cloud.ready) { Cloud.ready = true; Cloud.state = 'ready'; drawBar(); } render(); drawBar(); };
+  const onErr = e => { console.error(e); Cloud.err = /permission/i.test(e.code || e.message) ? 'אין הרשאה לקרוא מהענן (כללי האבטחה של Firestore)' : (e.message || e.code); Cloud.state = 'out'; Cloud.ready = false; render(); drawBar(); };
+  for (const col of ['items', 'docs']) {
+    F.onSnapshot(F.collection(db, 'vehicles', 'main', col), s => {
+      const o = {}; s.forEach(d => o[d.id] = d.data()); S[col] = o; first[col] = true; done();
+    }, onErr);
+  }
+  F.onSnapshot(Cloud.ref(), s => { S.meta = s.exists() ? s.data() : {}; first.meta = true; done(); }, onErr);
+}
+
+(async () => {
+  try {
+    const [A, Au, Fs] = await Promise.all([import(FB + 'firebase-app.js'), import(FB + 'firebase-auth.js'), import(FB + 'firebase-firestore.js')]);
+    const app = A.getApps().length ? A.getApp() : A.initializeApp(CFG);
+    auth = Au.getAuth(app);
+    try { db = Fs.initializeFirestore(app, { localCache: Fs.persistentLocalCache({ tabManager: Fs.persistentMultipleTabManager() }) }); } catch (e) { db = Fs.getFirestore(app); }
+    F = { ...Au, ...Fs };
+  } catch (e) { Cloud.state = 'out'; Cloud.err = 'אין חיבור לאינטרנט'; render(); drawBar(); return; }
+  let started = false;
+  F.onAuthStateChanged(auth, async u => {
+    if (u && !isOwner(u)) { Cloud.err = `החשבון ${u.email} אינו מורשה. יש להתחבר עם ${OWNER}.`; await F.signOut(auth); return; }
+    if (!u) { Cloud.state = 'out'; Cloud.ready = false; render(); drawBar(); return; }
+    Cloud.err = '';
+    if (!started) { started = true; start(); }
+  });
+})();
+
+/* ---------- Google Drive ---------- */
+const TOK = 'lv_drive_tok';
+const Drive = window.Drive = {
+  async token() {
+    try { const t = JSON.parse(sessionStorage.getItem(TOK) || 'null'); if (t && t.exp > Date.now() + 60000) return t.v; } catch (e) {}
+    const p = new F.GoogleAuthProvider();
+    p.addScope('https://www.googleapis.com/auth/drive.file');
+    p.setCustomParameters({ login_hint: OWNER });
+    const cur = auth.currentUser;
+    const res = cur && isOwner(cur) ? await F.reauthenticateWithPopup(cur, p) : await F.signInWithPopup(auth, p);
+    if (!isOwner(res.user)) throw new Error('יש להתחבר עם ' + OWNER);
+    const cred = F.GoogleAuthProvider.credentialFromResult(res);
+    if (!cred || !cred.accessToken) throw new Error('לא התקבלה הרשאה לדרייב');
+    sessionStorage.setItem(TOK, JSON.stringify({ v: cred.accessToken, exp: Date.now() + 50 * 60000 }));
+    return cred.accessToken;
+  },
+  async api(url, opt = {}) {
+    const t = await this.token();
+    const r = await fetch(url, { ...opt, headers: { ...(opt.headers || {}), Authorization: 'Bearer ' + t } });
+    if (r.status === 401) { sessionStorage.removeItem(TOK); throw new Error('ההרשאה לדרייב פגה — נסה שוב'); }
+    if (!r.ok) throw new Error('דרייב ' + r.status + ': ' + (await r.text()).slice(0, 160));
+    return r.json();
+  },
+  async exists(id) {
+    if (!id) return false;
+    try { const f = await this.api(`https://www.googleapis.com/drive/v3/files/${id}?fields=id,trashed`); return !f.trashed; } catch (e) { return false; }
+  },
+  async mkdir(name, parent) {
+    return (await this.api('https://www.googleapis.com/drive/v3/files?fields=id', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder', ...(parent ? { parents: [parent] } : {}) }) })).id;
+  },
+  async child(parent, name) {
+    const q = encodeURIComponent(`'${parent}' in parents and name='${name.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+    const r = await this.api(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`);
+    return (r.files && r.files[0] && r.files[0].id) || await this.mkdir(name, parent);
+  },
+  async root() {
+    if (await this.exists(S.meta.rootFolder)) return S.meta.rootFolder;
+    const id = await this.mkdir(ROOT_NAME);
+    S.meta.rootFolder = id; await Cloud.putMeta({ rootFolder: id });
+    return id;
+  },
+  async workerFolder(p, cat) {
+    let wf = p.folder;
+    if (!(await this.exists(wf))) {
+      wf = await this.child(await this.root(), label(p) + (p.plate ? ' — ' + p.plate : ''));
+      await Cloud.put('items', p.id, { ...S.items[p.id], folder: wf });
+    }
+    return this.child(wf, CAT[cat].t);
+  },
+  async sharedFolder(cat) { return this.child(await this.child(await this.root(), 'מסמכים משותפים'), CAT[cat].t); },
+  async upload(file, name, parent) {
+    const t = await this.token();
+    const meta = { name, parents: [parent] };
+    const fd = new FormData();
+    fd.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+    fd.append('file', file);
+    const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink,name', { method: 'POST', headers: { Authorization: 'Bearer ' + t }, body: fd });
+    if (r.status === 401) { sessionStorage.removeItem(TOK); throw new Error('ההרשאה לדרייב פגה — נסה שוב'); }
+    if (!r.ok) throw new Error('העלאה לדרייב נכשלה: ' + r.status);
+    return r.json();
+  }
+};
+render(); drawBar();
+</script>
+</body>
+</html>
