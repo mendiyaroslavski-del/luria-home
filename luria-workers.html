@@ -525,8 +525,10 @@ async function doUpload() {
       if (sameFile || (hash && seenHashes.has(hash))) { log.push(`⏭️ ${esc(file.name)} — הקובץ הזה כבר הועלה${sameFile ? ' (' + esc(sameFile.title || '') + (S.people[sameFile.wid] ? ' · ' + esc(label(S.people[sameFile.wid])) : '') + ')' : ' באותה העלאה'} — דילגתי`); continue; }
       if (hash) seenHashes.add(hash);
       if (useAi && !multi && /pdf/.test(fileObj.type)) {
-        const parts = await splitAndFile(fileObj, UP.cat, UP.wid, (t) => st.innerHTML = `<span class="spin"></span> ${pre}${t}`, hash).catch(e => { console.warn(e); return null; });
+        let splitErr = null;
+        const parts = await splitAndFile(fileObj, UP.cat, UP.wid, (t) => st.innerHTML = `<span class="spin"></span> ${pre}${t}`, hash).catch(e => { console.warn(e); splitErr = e; return null; });
         if (parts) { log.push(...parts); continue; }
+        if (splitErr && !/נטען כלי הפיצול/.test(splitErr.message)) { log.push(`❌ ${esc(file.name)} — לא הצלחתי לחלק את הקובץ: ${esc(splitErr.message)}. לא נשמר כלום — נסה שוב`); continue; }
       }
       if (useAi) { st.innerHTML = `<span class="spin"></span> ${pre}Claude קורא את ${esc(file.name)}…`; info = await AI.read(fileObj, UP.cat).catch(e => { console.warn(e); return { _err: e.message }; }); }
       const r = resolveDoc(info, UP.cat, multi ? null : UP.wid, !!multi);
@@ -917,14 +919,18 @@ async function splitAndFile(fileObj, chosenCat, chosenWid, status, srcHash) {
   const pages = await AI.pages(fileObj, n);
   // קיבוץ עמודים רצופים לאותו מסמך (חודש + עובד + סוג)
   const groups = [];
+  let brk = false;
   for (let i = 0; i < n; i++) {
     const pg = pages.find(x => +x.page === i + 1) || {};
-    const prev = groups[groups.length - 1];
+    if (pg.docType === 'skip') { brk = true; continue; }            // עמוד שער / מפריד / גרסה מוקדמת — לא נשמר
+    const prev = brk ? null : groups[groups.length - 1]; brk = false;
     const key = [pg.docType || '', pg.period || '', pg.expiry || '', String(pg.workerName || '').toLowerCase().trim()].join('|');
     const cont = prev && (pg.continued === true || String(pg.continued) === 'true' || (!pg.period && !pg.workerName && !pg.expiry) || prev.key === key);
     if (cont) prev.idx.push(i); else groups.push({ key, idx: [i], info: { ...pg } });
   }
-  if (groups.length < 2) return null;
+  const skipped = n - groups.reduce((a, g) => a + g.idx.length, 0);
+  if (groups.length < 2 && !skipped) return null;
+  if (!groups.length) throw new Error('לא נמצאו מסמכים בקובץ');
   const out = [];
   let k = 0;
   for (const g of groups) {
@@ -954,6 +960,7 @@ async function splitAndFile(fileObj, chosenCat, chosenWid, status, srcHash) {
     await applyToWorker(r.wid, r.cat, info, exp);
     out.push(`📄 עמ׳ ${g.idx[0] + 1}${g.idx.length > 1 ? '-' + (g.idx[g.idx.length - 1] + 1) : ''} → ${c.ic} ${title} · ${esc(label(owner))}`);
   }
+  if (skipped) out.push(`ℹ️ ${skipped} עמודים לא נשמרו (עמוד שער / מפריד / גרסה מוקדמת)`);
   return out;
 }
 async function edSplit() {
@@ -969,7 +976,7 @@ async function edSplit() {
     if (!parts) { st.innerHTML = 'ℹ️ Claude לא מצא בקובץ כמה מסמכים נפרדים — לא פוצל'; $('e_split').disabled = false; return; }
     S.docs = { ...S.docs, [d.id]: orig };
     await Cloud.del('docs', d.id);
-    st.innerHTML = '✅ פוצל ל-' + parts.length + ' מסמכים:<br>' + parts.join('<br>') + '<br><span style="opacity:.7">הקובץ המקורי נשאר בדרייב.</span>';
+    st.innerHTML = '✅ פוצל ל-' + parts.filter(x => x.startsWith('📄')).length + ' מסמכים:<br>' + parts.join('<br>') + '<br><span style="opacity:.7">הקובץ המקורי נשאר בדרייב.</span>';
     $('e_go').textContent = 'סגור'; $('e_go').onclick = () => { closeMd(); render(); };
     render();
   } catch (e) { console.error(e); st.innerHTML = '❌ ' + esc(e.message); $('e_split').disabled = false; }
@@ -981,16 +988,31 @@ const AI = {
     const key = localStorage.getItem('luria_api_key'); if (!key) throw new Error('חסר מפתח Claude');
     const b64 = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = no; r.readAsDataURL(file); });
     const names = active().map(p => p.name + (p.nick ? ' (' + p.nick + ')' : '')).join(' | ');
-    const prompt = `ב-PDF הזה ${n} עמודים, ויכול להיות שהוא כולל כמה מסמכים נפרדים של עובדים זרים (למשל תלוש שכר לכל חודש, דוח שעות לכל חודש, או כמה פוליסות ביטוח / ויזות משנים שונות). פוליסה או מסמך שנמשך על כמה עמודים — סמן את עמודי ההמשך continued:true.
-החזר JSON בלבד — מערך עם אובייקט לכל עמוד:
-[{"page":1,"docType":"pay | hours | ins | visa | pass | cont | other","period":"החודש שהעמוד מתייחס אליו YYYY-MM או null","workerName":"שם העובד בעמוד או null","continued":true אם העמוד הוא המשך של המסמך מהעמוד הקודם אחרת false,"net":"שכר נטו אם זה תלוש או null","hours":"סך שעות אם זה דוח שעות או null","expiry":"סוף תוקף YYYY-MM-DD (ביטוח / ויזה / דרכון) או null","validFrom":"תחילת תוקף YYYY-MM-DD או null"}]
+    const prompt = `ב-PDF הזה ${n} עמודים. הוא יכול לכלול כמה מסמכים נפרדים של עובדים זרים: תלוש שכר לכל חודש, דוח שעות לכל חודש, כמה פוליסות ביטוח / ויזות משנים שונות וכו'.
+החזר JSON בלבד — מערך קומפקטי עם שורה לכל עמוד (${n} שורות), בלי רווחים מיותרים:
+[{"p":1,"t":"pay","m":"2022-08","w":"PHOONSAK","c":0,"e":null,"f":null}, ...]
+p = מספר העמוד
+t = סוג: pay (תלוש שכר), hours (דוח שעות), ins (ביטוח בריאות), visa (ויזה / אשרה), pass (דרכון), cont (חוזה), other (מסמך אחר), skip (עמוד שער / תוכן עניינים / סיכום / דף מפריד / כותרת נספח — לא מסמך)
+m = החודש שהעמוד מתייחס אליו YYYY-MM (לתלוש / דוח שעות) או null
+w = שם המשפחה או השם הפרטי של העובד באנגלית כפי שמופיע, או null
+c = 1 אם העמוד הוא המשך של המסמך מהעמוד הקודם, אחרת 0
+e = סוף תוקף YYYY-MM-DD (ביטוח / ויזה / דרכון) או null
+f = תחילת תוקף YYYY-MM-DD או null
+אם יש בנספח "גרסה מוקדמת" / עותק קודם של מסמך שכבר הופיע — סמן אותו t:"skip".
 העובדים הקיימים: ${names}`;
     let last = '';
     for (const model of ['claude-sonnet-5-5', 'claude-sonnet-5', 'claude-sonnet-4-5']) {
       const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({ model, max_tokens: 4000, messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }, { type: 'text', text: prompt }] }] }) });
+        body: JSON.stringify({ model, max_tokens: Math.min(32000, 1500 + n * 90), messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }, { type: 'text', text: prompt }] }] }) });
       const j = await r.json().catch(() => ({}));
-      if (r.ok) { const t = (j.content || []).map(x => x.text || '').join(''); const m = t.match(/\[[\s\S]*\]/); return m ? JSON.parse(m[0]) : []; }
+      if (r.ok) {
+        const t = (j.content || []).map(x => x.text || '').join('');
+        const m = t.match(/\[[\s\S]*\]/);
+        let arr; try { arr = m ? JSON.parse(m[0]) : null; } catch (e) { arr = null; }
+        if (!arr || !arr.length) throw new Error(j.stop_reason === 'max_tokens' ? 'הקובץ ארוך מדי לקריאה אחת — חלק אותו לשני קבצים' : 'Claude לא החזיר פירוט עמודים');
+        return arr.map(x => ({ page: x.p ?? x.page, docType: x.t ?? x.docType, period: x.m ?? x.period, workerName: x.w ?? x.workerName,
+          continued: x.c === 1 || x.c === true || x.continued === true, expiry: x.e ?? x.expiry, validFrom: x.f ?? x.validFrom }));
+      }
       last = (j.error && j.error.message) || r.status;
       if (!(r.status === 404 || (r.status === 400 && /model/i.test(last)))) break;
     }
