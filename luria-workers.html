@@ -528,7 +528,7 @@ async function doUpload() {
         let splitErr = null;
         const parts = await splitAndFile(fileObj, UP.cat, UP.wid, (t) => st.innerHTML = `<span class="spin"></span> ${pre}${t}`, hash).catch(e => { console.warn(e); splitErr = e; return null; });
         if (parts) { log.push(...parts); continue; }
-        if (splitErr && !/נטען כלי הפיצול/.test(splitErr.message)) { log.push(`❌ ${esc(file.name)} — לא הצלחתי לחלק את הקובץ: ${esc(splitErr.message)}. לא נשמר כלום — נסה שוב`); continue; }
+        if (splitErr) { log.push(`❌ ${esc(file.name)} — לא הצלחתי לחלק את הקובץ: ${esc(splitErr.message)}. לא נשמר כלום — נסה שוב`); continue; }
       }
       if (useAi) { st.innerHTML = `<span class="spin"></span> ${pre}Claude קורא את ${esc(file.name)}…`; info = await AI.read(fileObj, UP.cat).catch(e => { console.warn(e); return { _err: e.message }; }); }
       const r = resolveDoc(info, UP.cat, multi ? null : UP.wid, !!multi);
@@ -558,7 +558,8 @@ async function doUpload() {
       }
       log.push(`📄 ${esc(file.name)} → ${c.ic} ${c.t}${exp ? ' עד ' + dmy(exp) : ''}${period ? ' ' + ym(period + '-01') : ''} · ${multi ? multi.length + ' עובדים' : esc(label(owner))}${r.notes.length ? ' <span style="color:#ffd59a">(' + r.notes.join(', ') + ')</span>' : ''}`);
     }
-    st.innerHTML = (log.every(l => l.startsWith('⏭️')) ? 'ℹ️ לא הועלה שום דבר חדש:' : '✅ הועלה ונשמר:') + '<br>' + log.join('<br>');
+    const okN = log.filter(l => l.startsWith('📄')).length, errN = log.filter(l => l.startsWith('❌')).length;
+    st.innerHTML = (okN ? '✅ הועלה ונשמר:' : errN ? '⚠️ לא נשמר:' : 'ℹ️ לא הועלה שום דבר חדש:') + '<br>' + log.join('<br>');
     go.textContent = 'סגור'; go.disabled = false; go.onclick = () => { closeMd(); render(); };
     render();
   } catch (e) {
@@ -910,13 +911,13 @@ async function loadPdfLib() {
 }
 // מחזיר שורות סיכום אם פוצל, או null אם הקובץ הוא מסמך אחד
 async function splitAndFile(fileObj, chosenCat, chosenWid, status, srcHash) {
-  const L = await loadPdfLib();
+  let L; try { L = await loadPdfLib(); } catch (e) { throw new Error('נטען כלי הפיצול נכשל — בדוק אינטרנט'); }
   const buf = await fileObj.arrayBuffer();
   const src = await L.PDFDocument.load(buf, { ignoreEncryption: true });
   const n = src.getPageCount();
   if (n < 2) return null;
   status(`Claude קורא ${n} עמודים…`);
-  const pages = await AI.pages(fileObj, n);
+  let pages; try { pages = await AI.pages(fileObj, n); } catch (e) { throw new Error('קריאת העמודים עם Claude — ' + e.message); }
   // קיבוץ עמודים רצופים לאותו מסמך (חודש + עובד + סוג)
   const groups = [];
   let brk = false;
@@ -950,7 +951,7 @@ async function splitAndFile(fileObj, chosenCat, chosenWid, status, srcHash) {
     const doc = await L.PDFDocument.create();
     (await doc.copyPages(src, g.idx)).forEach(pg => doc.addPage(pg));
     const part = new File([await doc.save()], fname, { type: 'application/pdf' });
-    const up = await Drive.upload(part, fname, await Drive.workerFolder(owner, r.cat));
+    let up; try { up = await Drive.upload(part, fname, await Drive.workerFolder(owner, r.cat)); } catch (e) { throw new Error(`שמירה בדרייב (אחרי ${out.length} מסמכים) — ` + (/fetch|network/i.test(e.message) ? 'אין חיבור לגוגל דרייב' : e.message)); }
     const d = { id: uid('d'), wid: r.wid, cat: r.cat, title, fname, fileId: up.id, link: up.webViewLink || ('https://drive.google.com/file/d/' + up.id + '/view'), date: today(), pages: g.idx.length };
     if (srcHash) d.srcHash = srcHash;
     if (period) d.period = period; if (exp) d.exp = exp;
@@ -983,6 +984,33 @@ async function edSplit() {
 }
 
 /* ---------- Claude ---------- */
+/* קריאה ל-Claude בזרימה (stream): הנתונים זורמים כל הזמן, כך שהחיבור לא נקטע בקבצים ארוכים */
+async function claudeFetch(url, opt) {
+  const body = JSON.parse(opt.body); body.stream = true;
+  const go = () => fetch(url, { ...opt, body: JSON.stringify(body) });
+  let r;
+  try { r = await go(); } catch (e) { await new Promise(z => setTimeout(z, 2500)); try { r = await go(); } catch (e2) { throw new Error('אין חיבור ל-Claude — בדוק אינטרנט ונסה שוב'); } }
+  if (!r.ok || !r.body) return r;
+  const rd = r.body.getReader(), dec = new TextDecoder();
+  let buf = '', text = '', stop = null, err = null;
+  try {
+    for (;;) {
+      const { done, value } = await rd.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if (!line.startsWith('data:')) continue;
+        let ev; try { ev = JSON.parse(line.slice(5)); } catch (e) { continue; }
+        if (ev.type === 'content_block_delta' && ev.delta && ev.delta.type === 'text_delta') text += ev.delta.text;
+        else if (ev.type === 'message_delta' && ev.delta) stop = ev.delta.stop_reason || stop;
+        else if (ev.type === 'error') err = ev.error;
+      }
+    }
+  } catch (e) { throw new Error('החיבור ל-Claude נקטע באמצע הקריאה — ודא שהמסך דולק והאינטרנט יציב, ונסה שוב'); }
+  const j = err ? { error: err } : { content: [{ type: 'text', text }], stop_reason: stop };
+  return { ok: !err, status: err ? (/overload/i.test(err.type || '') ? 529 : 500) : 200, json: async () => j };
+}
 const AI = {
   async pages(file, n) {
     const key = localStorage.getItem('luria_api_key'); if (!key) throw new Error('חסר מפתח Claude');
@@ -1002,7 +1030,7 @@ f = תחילת תוקף YYYY-MM-DD או null
 העובדים הקיימים: ${names}`;
     let last = '';
     for (const model of ['claude-sonnet-5-5', 'claude-sonnet-5', 'claude-sonnet-4-5']) {
-      const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      const r = await claudeFetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
         body: JSON.stringify({ model, max_tokens: Math.min(32000, 1500 + n * 90), messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }, { type: 'text', text: prompt }] }] }) });
       const j = await r.json().catch(() => ({}));
       if (r.ok) {
@@ -1026,7 +1054,7 @@ f = תחילת תוקף YYYY-MM-DD או null
     const prompt = 'זו רשימה/טבלה של עובדים. החזר JSON בלבד — מערך של אובייקטים, אחד לכל עובד, עם השדות שמופיעים (העתק בדיוק, כולל אפסים מובילים, כטקסט):\n[{"first":"שם פרטי","last":"שם משפחה","full":"שם מלא אם אין פיצול","passNo":"מספר דרכון","phone":"טלפון","bankName":"בנק (כמו שכתוב, גם אם זה מספר)","bankBranch":"סניף","bankAcc":"מספר חשבון","bankOpen":"תאריך פתיחת חשבון YYYY-MM-DD","birth":"תאריך לידה YYYY-MM-DD","visaNo":"מספר ויזה","visaExp":"תוקף ויזה YYYY-MM-DD","start":"תחילת עבודה YYYY-MM-DD"}]\nשדה שלא מופיע — השמט אותו.';
     let last = '';
     for (const model of ['claude-sonnet-5-5', 'claude-sonnet-5', 'claude-sonnet-4-5']) {
-      const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      const r = await claudeFetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
         body: JSON.stringify({ model, max_tokens: 4000, messages: [{ role: 'user', content: [src, { type: 'text', text: prompt }] }] }) });
       const j = await r.json().catch(() => ({}));
       if (r.ok) { const t = (j.content || []).map(x => x.text || '').join(''); const m = t.match(/\[[\s\S]*\]/); return m ? JSON.parse(m[0]) : []; }
@@ -1049,7 +1077,7 @@ f = תחילת תוקף YYYY-MM-DD או null
     const models = ['claude-sonnet-5-5', 'claude-sonnet-5', 'claude-sonnet-4-5'];
     let last = '';
     for (const model of models) {
-      const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      const r = await claudeFetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
         body: JSON.stringify({ model, max_tokens: 800, messages: [{ role: 'user', content: [src, { type: 'text', text: prompt }] }] }) });
       const j = await r.json().catch(() => ({}));
       if (r.ok) { const t = (j.content || []).map(x => x.text || '').join(''); const m = t.match(/\{[\s\S]*\}/); return m ? JSON.parse(m[0]) : {}; }
