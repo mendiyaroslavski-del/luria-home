@@ -305,16 +305,19 @@ function render() {
   let body = '';
   if (view.tab === 'month') body = monthHtml();
   else {
-    const ps = allPeople();
+    const ps = view.leftOpen ? allPeople().filter(p => p.status === 'left') : active();
+    const nLeft = allPeople().filter(p => p.status === 'left').length;
     body = `<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn" onclick="editWorker()">➕ עובד חדש</button><button class="btn sec" onclick="uploadDialog()">📤 העלאת מסמך</button><button class="btn ghost" onclick="importDialog()" title="אקסל / PDF עם רשימת עובדים">📥 ייבוא רשימה</button></div>` +
       (ps.length ? `<div class="grid">${ps.map(p => {
         const cnt = docsOf(p.id).length;
-        return `<div class="wk" onclick="openWorker('${p.id}')" style="${p.status === 'left' ? 'opacity:.5' : ''}">
-          <div class="nm">${esc(label(p))}${p.status === 'left' ? ' <span class="pill">עזב</span>' : ''}</div>
+        return `<div class="wk" onclick="openWorker('${p.id}')" style="${p.status === 'left' ? 'opacity:.75' : ''}">
+          <div class="nm">${esc(label(p))}${p.status === 'left' ? ` <span class="pill">עזב${p.end ? ' ' + dmy(p.end) : ''}</span>` : ''}</div>
           ${p.nick && p.name ? `<div class="nn">${esc(p.name)}</div>` : ''}
           <div class="pills">${p.status === 'left' ? '' : expPill('ויזה', p.visaExp) + expPill('ביטוח', p.insExp) + expPill('דרכון', p.passExp)}<span class="pill">📁 ${cnt} מסמכים</span></div>
         </div>`; }).join('')}</div>`
-        : `<div class="empty">עדיין אין עובדים במערכת.<br>לחץ "➕ עובד חדש" כדי להוסיף את הראשון.</div>`);
+        : `<div class="empty">${view.leftOpen ? 'אין עובדים בארכיון' : 'עדיין אין עובדים פעילים.<br>לחץ "➕ עובד חדש" כדי להוסיף.'}</div>`)
+      + (nLeft || view.leftOpen ? `<button class="btn ghost" style="width:100%;margin-top:14px" onclick="view.leftOpen=!view.leftOpen;render()">${view.leftOpen ? '→ חזרה לעובדים הפעילים' : `🗄️ ארכיון עובדים שעזבו (${nLeft})`}</button>` : '');
+    if (view.leftOpen) body = `<div class="al org" style="margin-bottom:10px;cursor:default">🗄️ ארכיון עובדים שעזבו — כל הפרטים והמסמכים נשמרים כאן</div>` + body;
   }
   $('app').innerHTML = alertsHtml() + tabs + body;
 }
@@ -335,31 +338,98 @@ function monthHtml() {
   </table></div><div class="note">✓ = יש מסמך (לחיצה פותחת) · ✗ = חסר (לחיצה להעלאה) · · = לפני תחילת העבודה או הרישום</div></div>`).join('');
 }
 
+/* ---------- ארכיון: מה נוכחי ומה ישן ---------- */
+const CUR_Y = () => String(new Date().getFullYear());
+const docYear = d => String(d.period || d.exp || d.docDate || d.date || '').slice(0, 4);
+// ביטוח / ויזה / דרכון: נוכחי = בתוקף היום, או האחרון שהועלה. השאר לארכיון.
+// תלושים / שעות / אחר: נוכחי = השנה הנוכחית. חוזה: האחרון.
+function splitDocs(wid, cat) {
+  const all = docsOf(wid, cat);
+  const c = CAT[cat], t = today();
+  let cur;
+  if (c.exp) {
+    const valid = all.filter(d => d.exp && d.exp >= t);
+    const latest = all.filter(d => d.exp).sort((a, b) => b.exp.localeCompare(a.exp))[0];
+    cur = valid.length ? valid : (latest ? [latest] : []);
+    all.filter(d => !d.exp && docYear(d) === CUR_Y()).forEach(d => cur.push(d));
+  } else if (cat === 'cont') cur = all.slice(0, 1);
+  else cur = all.filter(d => docYear(d) >= CUR_Y());
+  const ids = new Set(cur.map(d => d.id));
+  return { cur, arch: all.filter(d => !ids.has(d.id)) };
+}
+const fmtM = m => m.slice(5, 7) + '/' + m.slice(2, 4);
+function monthRanges(ms) {                     // ['2022-04','2022-05','2022-07'] → "04/22–05/22, 07/22"
+  const out = []; let a = null, b = null;
+  const next = m => { const d = new Date(m + '-15'); d.setMonth(d.getMonth() + 1); return d.toISOString().slice(0, 7); };
+  const rg = (x, y) => '<bdi dir="ltr">' + (x === y ? fmtM(x) : fmtM(x) + '–' + fmtM(y)) + '</bdi>';
+  ms.forEach(m => { if (a && next(b) === m) b = m; else { if (a) out.push(rg(a, b)); a = b = m; } });
+  if (a) out.push(rg(a, b));
+  return out.join(', ');
+}
+// בדיקת שלמות מתחילת העבודה: אילו חודשים חסרים ואילו תקופות בלי ביטוח
+function completeness(p) {
+  if (!p.start) return { noStart: true };
+  const endM = p.status === 'left' && p.end ? p.end.slice(0, 7) : lastMonths(1)[0];
+  const months = []; const d = new Date(p.start.slice(0, 7) + '-15');
+  while (d.toISOString().slice(0, 7) <= endM) { months.push(d.toISOString().slice(0, 7)); d.setMonth(d.getMonth() + 1); }
+  const has = cat => new Set(docsOf(p.id, cat).map(x => x.period).filter(Boolean));
+  const hp = has('pay'), hh = has('hours');
+  const missPay = months.filter(m => !hp.has(m)), missHrs = months.filter(m => !hh.has(m));
+  // ביטוח: תקופות בלי כיסוי, מתחילת העבודה עד היום / עד העזיבה
+  const endD = p.status === 'left' && p.end ? p.end : today();
+  const iv = docsOf(p.id, 'ins').filter(x => x.exp).map(x => {
+    let f = x.from; if (!f) { const t = new Date(x.exp + 'T12:00'); t.setFullYear(t.getFullYear() - 1); t.setDate(t.getDate() + 1); f = t.toISOString().slice(0, 10); }
+    return [f, x.exp];
+  }).sort((a, b) => a[0].localeCompare(b[0]));
+  const gaps = []; let cur = p.start;
+  const plus1 = s => { const t = new Date(s + 'T12:00'); t.setDate(t.getDate() + 1); return t.toISOString().slice(0, 10); };
+  const minus1 = s => { const t = new Date(s + 'T12:00'); t.setDate(t.getDate() - 1); return t.toISOString().slice(0, 10); };
+  for (const [f, e] of iv) { if (e < cur) continue; if (f > cur) gaps.push([cur, f <= endD ? minus1(f) : endD]); if (plus1(e) > cur) cur = plus1(e); if (cur > endD) break; }
+  if (cur <= endD) gaps.push([cur, endD]);
+  return { months: months.length, missPay, missHrs, insGaps: gaps.filter(g => g[0] < g[1] || g[0] === g[1]) };
+}
+function completenessHtml(p) {
+  const c = completeness(p);
+  if (c.noStart) return `<div class="al org" onclick="editWorker('${p.id}')">📅 חסר תאריך תחילת עבודה — הוסף אותו ב"✏️ פרטים" כדי שאוכל לבדוק אילו מסמכים חסרים</div>`;
+  const line = (ok, icon, txt) => `<div class="al ${ok ? 'ok' : 'org'}" style="cursor:default">${icon} ${txt}</div>`;
+  return `<div class="alerts">
+    ${line(!c.missPay.length, '💵', c.missPay.length ? `חסרים ${c.missPay.length} תלושי שכר: ${monthRanges(c.missPay)}` : `כל ${c.months} תלושי השכר קיימים`)}
+    ${line(!c.missHrs.length, '⏱️', c.missHrs.length ? `חסרים ${c.missHrs.length} דוחות שעות: ${monthRanges(c.missHrs)}` : `כל ${c.months} דוחות השעות קיימים`)}
+    ${line(!c.insGaps.length, '🏥', c.insGaps.length ? 'תקופות בלי ביטוח במערכת: ' + c.insGaps.map(g => '<bdi dir="ltr">' + dmy(g[0]) + '–' + dmy(g[1]) + '</bdi>').join(', ') : 'יש ביטוח לכל התקופה מתחילת העבודה')}
+  </div>`;
+}
+
 function renderWorker() {
   const p = S.people[view.wid];
-  const cnt = k => docsOf(p.id, k).length;
-  const ds = docsOf(p.id, view.cat);
+  const arch = !!view.arch;
+  const cnt = k => (arch ? splitDocs(p.id, k).arch : splitDocs(p.id, k).cur).length;
+  const sp = splitDocs(p.id, view.cat);
   const c = CAT[view.cat];
+  const archTotal = CATS.reduce((a, k) => a + splitDocs(p.id, k.k).arch.length, 0);
+  const byYear = list => { const g = {}; list.forEach(d => (g[docYear(d) || 'ללא תאריך'] = g[docYear(d) || 'ללא תאריך'] || []).push(d)); return Object.keys(g).sort().reverse().map(y => `<div style="font-size:13px;color:var(--gold);margin:12px 0 6px;font-weight:700">${y} · ${g[y].length}</div>` + g[y].map(docRow).join('')).join(''); };
   $('app').innerHTML = `
   <div class="hd"><button class="btn ghost sm" onclick="view.wid=null;render()">→ חזרה</button>
     <div class="t"><b>${esc(label(p))}</b><span>${esc(p.name || '')}${p.country ? ' · ' + esc(p.country) : ''}${p.start ? ' · מ-' + dmy(p.start) : ''}</span></div>
     <button class="btn sec sm" onclick="editWorker('${p.id}')">✏️ פרטים</button></div>
   ${p.status === 'left' ? '<div class="alerts"><div class="al org">העובד מסומן כ"עזב"' + (p.end ? ' — ' + dmy(p.end) : '') + '</div></div>' : `<div class="pills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${expPill('ויזה', p.visaExp)}${expPill('ביטוח', p.insExp)}${expPill('דרכון', p.passExp)}</div>`}
   <div class="box">
-    <h3>📁 תיק מסמכים<span class="grow"></span>${p.folder ? `<a class="btn ghost sm" href="https://drive.google.com/drive/folders/${p.folder}" target="_blank">פתח בדרייב</a>` : ''}</h3>
+    <h3>${arch ? '🗄️ ארכיון מסמכים' : '📁 תיק מסמכים — ' + CUR_Y()}<span class="grow"></span>${p.folder ? `<a class="btn ghost sm" href="https://drive.google.com/drive/folders/${p.folder}" target="_blank">פתח בדרייב</a>` : ''}</h3>
+    <div style="display:flex;gap:6px;margin-bottom:10px"><button class="tab ${!arch ? 'on' : ''}" style="font-family:inherit" onclick="view.arch=false;render()">📁 נוכחי</button><button class="tab ${arch ? 'on' : ''}" style="font-family:inherit" onclick="view.arch=true;render()">🗄️ ארכיון${archTotal ? ' (' + archTotal + ')' : ''}</button></div>
+    ${arch ? completenessHtml(p) : ''}
     <div class="cats">${CATS.map(k => `<button class="cat ${k.k === view.cat ? 'on' : ''}" onclick="view.cat='${k.k}';render()">${k.ic} ${k.t}<span class="n">${cnt(k.k) || ''}</span></button>`).join('')}</div>
-    <button class="btn" style="width:100%;margin-bottom:10px" onclick="uploadDialog('${p.id}','${view.cat}')">📤 העלאת ${c.t}</button>
-    ${ds.length ? ds.map(docRow).join('') : `<div class="empty" style="padding:20px">אין עדיין ${c.t}</div>`}
+    <button class="btn" style="width:100%;margin-bottom:10px" onclick="uploadDialog('${p.id}','${view.cat}')">📤 העלאת ${c.t}</button>${arch ? '<div class="note" style="margin:-4px 0 10px;text-align:center">אפשר לבחור כמה קבצים ישנים יחד — Claude ימיין אותם לפי שנה וחודש</div>' : ''}
+    ${arch ? (sp.arch.length ? byYear(sp.arch) : `<div class="empty" style="padding:20px">אין ${c.t} ישנים בארכיון</div>`)
+           : (sp.cur.length ? sp.cur.map(docRow).join('') : `<div class="empty" style="padding:20px">אין ${c.t} ל-${CUR_Y()}${sp.arch.length ? `<br><a href="#" onclick="view.arch=true;render();return false">${sp.arch.length} ישנים בארכיון ←</a>` : ''}</div>`)}
   </div>
   <div class="box"><h3>📋 פרטים</h3><div class="fg">${FIELDS.filter(f => !['notes', 'status', 'end'].includes(f[0]) && p[f[0]]).map(f => `<div><div style="font-size:11px;color:rgba(255,255,255,.5)">${f[1]}</div><div style="font-size:15px;${f[3] ? 'direction:ltr;text-align:right' : ''}">${esc(f[2] === 'date' ? dmy(p[f[0]]) : p[f[0]])}</div></div>`).join('') || '<div class="note">לחץ "✏️ פרטים" כדי למלא</div>'}</div>${p.notes ? `<div class="note" style="white-space:pre-wrap">${esc(p.notes)}</div>` : ''}</div>`;
 }
 function docRow(d) {
   const c = CAT[d.cat] || CAT.other;
-  const sub = [d.period ? 'חודש ' + ym(d.period + '-01') : '', d.exp ? 'בתוקף עד ' + dmy(d.exp) : '', d.date ? 'הועלה ' + dmy(d.date) : '', d.shared ? 'קובץ משותף' : ''].filter(Boolean).join(' · ');
+  const sub = [d.period ? 'חודש ' + ym(d.period + '-01') : '', d.exp ? (d.from ? '<bdi dir="ltr">' + dmy(d.from) + '–' + dmy(d.exp) + '</bdi>' : 'בתוקף עד ' + dmy(d.exp)) + (d.exp < today() ? ' (פג)' : '') : '', d.date ? 'הועלה ' + dmy(d.date) : '', d.shared ? 'קובץ משותף' : ''].filter(Boolean).join(' · ');
   return `<div class="doc"><div class="ic">${c.ic}</div><div class="i"><b>${esc(d.title || d.fname || c.t)}</b><span>${sub}</span></div>
     <button class="btn sec sm" onclick="openDoc('${d.id}')">פתח</button><button class="btn ghost sm" onclick="editDoc('${d.id}')" title="תיקון סוג / עובד / תאריך">✏️</button><button class="btn ghost sm" onclick="removeDoc('${d.id}')" title="הסר מהרשימה">✕</button></div>`;
 }
-function openWorker(id) { view.wid = id; view.cat = 'pay'; render(); scrollTo(0, 0); }
+function openWorker(id) { view.wid = id; view.cat = 'pay'; view.arch = false; render(); scrollTo(0, 0); }
 function openDoc(id) { const d = S.docs[id]; if (d && d.link) window.open(d.link, '_blank'); }
 async function removeDoc(id) {
   const d = S.docs[id]; if (!d) return;
@@ -449,7 +519,7 @@ async function doUpload() {
       let info = {}, fileObj;
       try { const buf = await file.arrayBuffer(); if (!buf.byteLength) throw 0; fileObj = new File([buf], file.name, { type: file.type || (/\.pdf$/i.test(file.name) ? 'application/pdf' : 'image/jpeg') }); }
       catch (e) { throw new Error(`לא ניתן לקרוא את הקובץ "${file.name}" מהטלפון. אם בחרת אותו ישר מהדרייב או מהמייל — הורד אותו קודם לטלפון ובחר אותו מתיקיית ההורדות.`); }
-      if (useAi && !multi && /pdf/.test(fileObj.type) && ['auto', 'pay', 'hours'].includes(UP.cat)) {
+      if (useAi && !multi && /pdf/.test(fileObj.type)) {
         const parts = await splitAndFile(fileObj, UP.cat, UP.wid, (t) => st.innerHTML = `<span class="spin"></span> ${pre}${t}`).catch(e => { console.warn(e); return null; });
         if (parts) { log.push(...parts); continue; }
       }
@@ -472,6 +542,7 @@ async function doUpload() {
       for (const w of (multi || [r.wid])) {
         const d = { id: uid('d'), wid: w, cat: r.cat, title, fname, fileId: up.id, link: up.webViewLink || ('https://drive.google.com/file/d/' + up.id + '/view'), date: today() };
         if (period) d.period = period; if (exp) d.exp = exp; if (multi) d.shared = true;
+        if (exp && /^\d{4}-\d{2}-\d{2}$/.test(info.validFrom || '') && info.validFrom < exp) d.from = info.validFrom;
         if (info.hours) d.hours = info.hours; if (info.net) d.net = info.net;
         await Cloud.put('docs', d.id, d);
         await applyToWorker(w, r.cat, info, exp);
@@ -670,7 +741,7 @@ async function impApply() {
 let ED = null;
 function editDoc(id) {
   const d = S.docs[id]; if (!d) return;
-  ED = { id, cat: d.cat, wid: d.wid, period: d.period || '', exp: d.exp || '', info: {} };
+  ED = { id, cat: d.cat, wid: d.wid, period: d.period || '', exp: d.exp || '', from: d.from || '', info: {} };
   drawEditDoc(); openMd();
 }
 function drawEditDoc() {
@@ -683,7 +754,7 @@ function drawEditDoc() {
     <label class="f">סוג מסמך<select onchange="ED.cat=this.value;drawEditDoc()">${CATS.map(k => `<option value="${k.k}" ${k.k === ED.cat ? 'selected' : ''}>${k.ic} ${k.t}</option>`).join('')}</select></label>
     <label class="f">עובד<select onchange="ED.wid=this.value" ${d.shared ? 'disabled' : ''}>${allPeople().map(p => `<option value="${p.id}" ${p.id === ED.wid ? 'selected' : ''}>${esc(label(p))}</option>`).join('')}</select></label>
     ${c.period ? `<label class="f">חודש<input type="month" value="${ED.period}" onchange="ED.period=this.value"></label>` : ''}
-    ${c.exp ? `<label class="f">בתוקף עד<input type="date" value="${ED.exp}" onchange="ED.exp=this.value"></label>` : ''}
+    ${c.exp ? `<label class="f">בתוקף מ-<input type="date" value="${ED.from || ''}" onchange="ED.from=this.value"></label><label class="f">בתוקף עד<input type="date" value="${ED.exp}" onchange="ED.exp=this.value"></label>` : ''}
   </div>
   <div class="note">כשמשנים סוג או עובד, הקובץ עובר גם בדרייב לתיקייה הנכונה.</div>
   <div class="row"><button class="btn" id="e_go" onclick="saveEditDoc()">💾 שמירה</button></div>
@@ -702,6 +773,7 @@ async function edReread() {
     if (r.cat) ED.cat = r.cat;
     if (r.wid && !d.shared) ED.wid = r.wid;
     if (CAT[ED.cat].exp && /^\d{4}-\d{2}-\d{2}$/.test(info.expiry || '')) ED.exp = info.expiry;
+    if (CAT[ED.cat].exp && /^\d{4}-\d{2}-\d{2}$/.test(info.validFrom || '')) ED.from = info.validFrom;
     if (CAT[ED.cat].period && /^\d{4}-\d{2}$/.test(info.period || '')) ED.period = info.period;
     drawEditDoc();
     $('e_st').innerHTML = `🤖 זוהה: ${CAT[ED.cat].ic} ${CAT[ED.cat].t} · ${esc(label(S.people[ED.wid]))}${CAT[ED.cat].exp && ED.exp ? ' · עד ' + dmy(ED.exp) : ''}${CAT[ED.cat].period && ED.period ? ' · ' + ym(ED.period + '-01') : ''} — בדוק ולחץ שמירה`;
@@ -713,6 +785,7 @@ async function saveEditDoc() {
   const d = { ...old, cat: ED.cat, wid: ED.wid };
   if (c.period && ED.period) d.period = ED.period; else delete d.period;
   if (c.exp && ED.exp) d.exp = ED.exp; else delete d.exp;
+  if (c.exp && ED.from) d.from = ED.from; else delete d.from;
   d.title = docTitle(d.cat, d.period, d.exp);
   try {
     if (!old.shared && (old.cat !== d.cat || old.wid !== d.wid || old.title !== d.title) && d.fileId) {
@@ -751,8 +824,8 @@ async function splitAndFile(fileObj, chosenCat, chosenWid, status) {
   for (let i = 0; i < n; i++) {
     const pg = pages.find(x => +x.page === i + 1) || {};
     const prev = groups[groups.length - 1];
-    const key = [pg.docType || '', pg.period || '', String(pg.workerName || '').toLowerCase().trim()].join('|');
-    const cont = prev && (pg.continued || (!pg.period && !pg.workerName) || prev.key === key);
+    const key = [pg.docType || '', pg.period || '', pg.expiry || '', String(pg.workerName || '').toLowerCase().trim()].join('|');
+    const cont = prev && (pg.continued === true || String(pg.continued) === 'true' || (!pg.period && !pg.workerName && !pg.expiry) || prev.key === key);
     if (cont) prev.idx.push(i); else groups.push({ key, idx: [i], info: { ...pg } });
   }
   if (groups.length < 2) return null;
@@ -776,6 +849,7 @@ async function splitAndFile(fileObj, chosenCat, chosenWid, status) {
     const up = await Drive.upload(part, fname, await Drive.workerFolder(owner, r.cat));
     const d = { id: uid('d'), wid: r.wid, cat: r.cat, title, fname, fileId: up.id, link: up.webViewLink || ('https://drive.google.com/file/d/' + up.id + '/view'), date: today(), pages: g.idx.length };
     if (period) d.period = period; if (exp) d.exp = exp;
+    if (exp && /^\d{4}-\d{2}-\d{2}$/.test(info.validFrom || '') && info.validFrom < exp) d.from = info.validFrom;
     if (info.hours) d.hours = info.hours; if (info.net) d.net = info.net;
     await Cloud.put('docs', d.id, d);
     await applyToWorker(r.wid, r.cat, info, exp);
@@ -803,9 +877,9 @@ const AI = {
     const key = localStorage.getItem('luria_api_key'); if (!key) throw new Error('חסר מפתח Claude');
     const b64 = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = no; r.readAsDataURL(file); });
     const names = active().map(p => p.name + (p.nick ? ' (' + p.nick + ')' : '')).join(' | ');
-    const prompt = `ב-PDF הזה ${n} עמודים, ויכול להיות שהוא כולל כמה מסמכים נפרדים של עובדים זרים (למשל תלוש שכר לכל חודש, או דוח שעות לכל חודש).
+    const prompt = `ב-PDF הזה ${n} עמודים, ויכול להיות שהוא כולל כמה מסמכים נפרדים של עובדים זרים (למשל תלוש שכר לכל חודש, דוח שעות לכל חודש, או כמה פוליסות ביטוח / ויזות משנים שונות). פוליסה או מסמך שנמשך על כמה עמודים — סמן את עמודי ההמשך continued:true.
 החזר JSON בלבד — מערך עם אובייקט לכל עמוד:
-[{"page":1,"docType":"pay | hours | ins | visa | pass | cont | other","period":"החודש שהעמוד מתייחס אליו YYYY-MM או null","workerName":"שם העובד בעמוד או null","continued":true אם העמוד הוא המשך של המסמך מהעמוד הקודם אחרת false,"net":"שכר נטו אם זה תלוש או null","hours":"סך שעות אם זה דוח שעות או null","expiry":"תאריך תפוגה YYYY-MM-DD אם רלוונטי או null"}]
+[{"page":1,"docType":"pay | hours | ins | visa | pass | cont | other","period":"החודש שהעמוד מתייחס אליו YYYY-MM או null","workerName":"שם העובד בעמוד או null","continued":true אם העמוד הוא המשך של המסמך מהעמוד הקודם אחרת false,"net":"שכר נטו אם זה תלוש או null","hours":"סך שעות אם זה דוח שעות או null","expiry":"סוף תוקף YYYY-MM-DD (ביטוח / ויזה / דרכון) או null","validFrom":"תחילת תוקף YYYY-MM-DD או null"}]
 העובדים הקיימים: ${names}`;
     let last = '';
     for (const model of ['claude-sonnet-5-5', 'claude-sonnet-5', 'claude-sonnet-4-5']) {
@@ -844,7 +918,7 @@ const AI = {
     const names = active().map(p => p.name + (p.nick ? ' (' + p.nick + ')' : '')).join(' | ');
     const prompt = `זה מסמך של עובד זר (כנראה מתאילנד) בחווה בישראל. ${CAT[cat] ? 'סוג המסמך שהמשתמש בחר: ' + CAT[cat].t + ' — אבל קבע בעצמך לפי התוכן.' : ''}
 החזר JSON בלבד, בלי טקסט נוסף:
-{"docType":"סוג המסמך בפועל, אחד מ: pay (תלוש שכר), hours (דוח שעות עבודה), ins (ביטוח בריאות / פוליסה), visa (ויזה / אשרת עבודה / רישיון שהייה), pass (דרכון), cont (חוזה העסקה), other","workerName":"שם העובד כפי שמופיע במסמך, באנגלית אם יש","passportNo":"מספר דרכון אם מופיע או null","docNumber":"מספר המסמך/פוליסה/ויזה או null","expiry":"תאריך תפוגה YYYY-MM-DD או null","birthDate":"YYYY-MM-DD או null","period":"החודש שהמסמך מתייחס אליו YYYY-MM (לתלוש שכר/דוח שעות) או null","company":"שם חברת הביטוח אם רלוונטי או null","bankName":"שם הבנק לתשלום השכר אם מופיע או null","bankBranch":"מספר סניף או null","bankAcc":"מספר חשבון בנק או null","hours":"סך שעות העבודה בחודש — מספר או null","net":"שכר נטו לתשלום — מספר או null"}
+{"docType":"סוג המסמך בפועל, אחד מ: pay (תלוש שכר), hours (דוח שעות עבודה), ins (ביטוח בריאות / פוליסה), visa (ויזה / אשרת עבודה / רישיון שהייה), pass (דרכון), cont (חוזה העסקה), other","workerName":"שם העובד כפי שמופיע במסמך, באנגלית אם יש","passportNo":"מספר דרכון אם מופיע או null","docNumber":"מספר המסמך/פוליסה/ויזה או null","expiry":"תאריך תפוגה / סוף תוקף YYYY-MM-DD או null","validFrom":"תחילת תוקף / תחילת ביטוח YYYY-MM-DD או null","birthDate":"YYYY-MM-DD או null","period":"החודש שהמסמך מתייחס אליו YYYY-MM (לתלוש שכר/דוח שעות) או null","company":"שם חברת הביטוח אם רלוונטי או null","bankName":"שם הבנק לתשלום השכר אם מופיע או null","bankBranch":"מספר סניף או null","bankAcc":"מספר חשבון בנק או null","hours":"סך שעות העבודה בחודש — מספר או null","net":"שכר נטו לתשלום — מספר או null"}
 רשימת העובדים הקיימים: ${names}`;
     const models = ['claude-sonnet-5-5', 'claude-sonnet-5', 'claude-sonnet-4-5'];
     let last = '';
