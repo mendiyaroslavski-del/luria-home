@@ -294,7 +294,8 @@ function alertsHtml() {
     if (noHrs.length) out.push({ c: 'org', s: `⏱️ חסר דוח שעות ל-${ym(pm + '-01')}: ${noHrs.map(p => esc(label(p))).join(', ')}`, tab: 'month' });
   }
   if (!out.length && active().length) return `<div class="alerts"><div class="al ok">✅ כל המסמכים בתוקף</div></div>`;
-  return `<div class="alerts">${out.map(a => `<div class="al ${a.c}" onclick="${a.w ? `openWorker('${a.w}')` : `setTab('${a.tab}')`}">${a.s}</div>`).join('')}</div>`;
+  if (out.some(a => a.w)) out.push({ c: 'ok', s: '📄 להפקת מכתב בקשת חידוש לחברת הביטוח — לחץ כאן', fn: 'renewDialog()' });
+  return `<div class="alerts">${out.map(a => `<div class="al ${a.c}" onclick="${a.fn ? a.fn : a.w ? `openWorker('${a.w}')` : `setTab('${a.tab}')`}">${a.s}</div>`).join('')}</div>`;
 }
 
 function render() {
@@ -307,7 +308,7 @@ function render() {
   else {
     const ps = view.leftOpen ? allPeople().filter(p => p.status === 'left') : active();
     const nLeft = allPeople().filter(p => p.status === 'left').length;
-    body = `<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn" onclick="editWorker()">➕ עובד חדש</button><button class="btn sec" onclick="uploadDialog()">📤 העלאת מסמך</button><button class="btn ghost" onclick="importDialog()" title="אקסל / PDF עם רשימת עובדים">📥 ייבוא רשימה</button></div>` +
+    body = `<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn" onclick="editWorker()">➕ עובד חדש</button><button class="btn sec" onclick="uploadDialog()">📤 העלאת מסמך</button><button class="btn ghost" onclick="importDialog()" title="אקסל / PDF עם רשימת עובדים">📥 ייבוא רשימה</button><button class="btn ghost" onclick="renewDialog()" title="מכתב לחברת הביטוח / לגורם המטפל">📄 מכתב חידוש</button></div>` +
       (ps.length ? `<div class="grid">${ps.map(p => {
         const cnt = docsOf(p.id).length;
         return `<div class="wk" onclick="openWorker('${p.id}')" style="${p.status === 'left' ? 'opacity:.75' : ''}">
@@ -508,7 +509,7 @@ async function doUpload() {
   if (!multi && !UP.wid && !useAi) { toast('בחר עובד'); return; }
   if (UP.cat === 'auto' && !useAi) { toast('בחר סוג מסמך'); return; }
   const st = $('u_st'), go = $('u_go'); go.disabled = true;
-  const log = [];
+  const log = [], seenHashes = new Set();
   try {
     st.innerHTML = '<span class="spin"></span> מתחבר לדרייב…';
     try { await Drive.token(); } catch (e) { throw new Error('החיבור לדרייב — ' + (e.code === 'auth/popup-blocked' ? 'הדפדפן חסם את חלון ההתחברות. אפשר חלונות קופצים ונסה שוב' : e.message)); }
@@ -519,8 +520,12 @@ async function doUpload() {
       let info = {}, fileObj;
       try { const buf = await file.arrayBuffer(); if (!buf.byteLength) throw 0; fileObj = new File([buf], file.name, { type: file.type || (/\.pdf$/i.test(file.name) ? 'application/pdf' : 'image/jpeg') }); }
       catch (e) { throw new Error(`לא ניתן לקרוא את הקובץ "${file.name}" מהטלפון. אם בחרת אותו ישר מהדרייב או מהמייל — הורד אותו קודם לטלפון ובחר אותו מתיקיית ההורדות.`); }
+      const hash = await fileHash(await fileObj.arrayBuffer());
+      const sameFile = hash && Object.values(S.docs).find(d => d.hash === hash || d.srcHash === hash);
+      if (sameFile || (hash && seenHashes.has(hash))) { log.push(`⏭️ ${esc(file.name)} — הקובץ הזה כבר הועלה${sameFile ? ' (' + esc(sameFile.title || '') + (S.people[sameFile.wid] ? ' · ' + esc(label(S.people[sameFile.wid])) : '') + ')' : ' באותה העלאה'} — דילגתי`); continue; }
+      if (hash) seenHashes.add(hash);
       if (useAi && !multi && /pdf/.test(fileObj.type)) {
-        const parts = await splitAndFile(fileObj, UP.cat, UP.wid, (t) => st.innerHTML = `<span class="spin"></span> ${pre}${t}`).catch(e => { console.warn(e); return null; });
+        const parts = await splitAndFile(fileObj, UP.cat, UP.wid, (t) => st.innerHTML = `<span class="spin"></span> ${pre}${t}`, hash).catch(e => { console.warn(e); return null; });
         if (parts) { log.push(...parts); continue; }
       }
       if (useAi) { st.innerHTML = `<span class="spin"></span> ${pre}Claude קורא את ${esc(file.name)}…`; info = await AI.read(fileObj, UP.cat).catch(e => { console.warn(e); return { _err: e.message }; }); }
@@ -531,6 +536,8 @@ async function doUpload() {
       const period = c.period ? ((info.period && /^\d{4}-\d{2}$/.test(info.period)) ? info.period : (($('u_period') || {}).value || UP.period)) : '';
       const exp = c.exp ? (($('u_exp') || {}).value || (/^\d{4}-\d{2}-\d{2}$/.test(info.expiry || '') ? info.expiry : '')) : '';
       const owner = multi ? null : S.people[r.wid];
+      const dup = !multi && findDup(r.wid, r.cat, period, exp, null);
+      if (dup) { log.push(`⏭️ ${esc(file.name)} — ${dupMsg(dup)}`); continue; }
       const ext = (file.name.split('.').pop() || 'pdf').toLowerCase();
       const title = docTitle(r.cat, period, exp);
       const fname = (owner ? label(owner) + ' - ' : '') + title.replace(/\//g, '-') + '.' + ext;
@@ -541,7 +548,7 @@ async function doUpload() {
       const up = await stage('העלאת הקובץ לדרייב', () => Drive.upload(fileObj, fname, folder));
       for (const w of (multi || [r.wid])) {
         const d = { id: uid('d'), wid: w, cat: r.cat, title, fname, fileId: up.id, link: up.webViewLink || ('https://drive.google.com/file/d/' + up.id + '/view'), date: today() };
-        if (period) d.period = period; if (exp) d.exp = exp; if (multi) d.shared = true;
+        if (period) d.period = period; if (exp) d.exp = exp; if (multi) d.shared = true; if (hash) d.hash = hash;
         if (exp && /^\d{4}-\d{2}-\d{2}$/.test(info.validFrom || '') && info.validFrom < exp) d.from = info.validFrom;
         if (info.hours) d.hours = info.hours; if (info.net) d.net = info.net;
         await Cloud.put('docs', d.id, d);
@@ -549,7 +556,7 @@ async function doUpload() {
       }
       log.push(`📄 ${esc(file.name)} → ${c.ic} ${c.t}${exp ? ' עד ' + dmy(exp) : ''}${period ? ' ' + ym(period + '-01') : ''} · ${multi ? multi.length + ' עובדים' : esc(label(owner))}${r.notes.length ? ' <span style="color:#ffd59a">(' + r.notes.join(', ') + ')</span>' : ''}`);
     }
-    st.innerHTML = '✅ הועלה ונשמר:<br>' + log.join('<br>');
+    st.innerHTML = (log.every(l => l.startsWith('⏭️')) ? 'ℹ️ לא הועלה שום דבר חדש:' : '✅ הועלה ונשמר:') + '<br>' + log.join('<br>');
     go.textContent = 'סגור'; go.disabled = false; go.onclick = () => { closeMd(); render(); };
     render();
   } catch (e) {
@@ -572,6 +579,16 @@ function resolveDoc(info, chosenCat, chosenWid, multi) {
   }
   return { cat, wid, notes };
 }
+/* ---------- מניעת כפילויות ---------- */
+async function fileHash(buf) { try { const h = await crypto.subtle.digest('SHA-256', buf); return [...new Uint8Array(h)].slice(0, 16).map(b => b.toString(16).padStart(2, '0')).join(''); } catch (e) { return ''; } }
+// אותו קובץ בדיוק (טביעת אצבע) או אותו מסמך (עובד + סוג + חודש / תוקף)
+function findDup(wid, cat, period, exp, hash) {
+  const ds = Object.values(S.docs);
+  if (hash) { const h = ds.find(d => d.hash === hash && (!wid || d.wid === wid)); if (h) return h; }
+  if (!wid) return null;
+  return ds.find(d => d.wid === wid && d.cat === cat && ((CAT[cat].period && period && d.period === period) || (CAT[cat].exp && exp && d.exp === exp))) || null;
+}
+function dupMsg(d) { const p = S.people[d.wid]; return `כבר קיים: ${esc(d.title || '')}${p ? ' · ' + esc(label(p)) : ''} — לא הועלה שוב`; }
 function docTitle(cat, period, exp) { return CAT[cat].t + (period ? ' ' + ym(period + '-01') : '') + (exp ? ' עד ' + dmy(exp) : ''); }
 
 function matchWorker(info) {
@@ -737,6 +754,85 @@ async function impApply() {
   closeMd(); render(); toast(`✅ ${added ? added + ' עובדים נוספו' : ''}${added && upd ? ' · ' : ''}${upd ? upd + ' עודכנו' : ''}${!added && !upd ? 'לא היה מה לעדכן' : ''}`);
 }
 
+/* ---------- מכתב בקשת חידוש (ביטוח / ויזה / דרכון) ---------- */
+const RENEW = {
+  ins:  { t: 'ביטוח בריאות', f: 'insExp', to: p => p.insCo || '', subj: 'בקשה לחידוש ביטוח בריאות לעובדים זרים', num: p => p.insNo || '', numT: 'מס׳ פוליסה',
+          body: 'הננו מבקשים לחדש את פוליסת ביטוח הבריאות של העובדים המפורטים להלן, ברצף וללא הפסקה בכיסוי, החל מהיום שלמחרת תום הביטוח הנוכחי ולמשך שנה.' },
+  visa: { t: 'ויזה / אשרת עבודה', f: 'visaExp', to: () => '', subj: 'בקשה לחידוש אשרת עבודה לעובדים זרים בחקלאות', num: p => p.visaNo || '', numT: 'מס׳ אשרה',
+          body: 'הננו מבקשים לטפל בחידוש אשרות העבודה של העובדים המפורטים להלן, המועסקים אצלנו בחקלאות, לפני תום תוקפן.' },
+  pass: { t: 'דרכון', f: 'passExp', to: () => '', subj: 'בקשה לחידוש דרכון לעובדים', num: () => '', numT: '',
+          body: 'הננו מבקשים לטפל בחידוש הדרכונים של העובדים המפורטים להלן לפני תום תוקפם.' }
+};
+let RN = { type: 'ins', days: 45 };
+function renewDialog() {
+  const T = RENEW[RN.type];
+  const lim = new Date(); lim.setDate(lim.getDate() + (+RN.days)); const limS = lim.toISOString().slice(0, 10);
+  const ps = active().slice().sort((a, b) => String(a[T.f] || '9999').localeCompare(String(b[T.f] || '9999')));
+  if (!RN.sel || RN.selType !== RN.type + RN.days) { RN.sel = ps.filter(p => p[T.f] && p[T.f] <= limS).map(p => p.id); RN.selType = RN.type + RN.days; }
+  const sign = localStorage.getItem('lw_signer') || 'מנדי ירוסלבסקי';
+  $('md').innerHTML = `<h2>📄 מכתב בקשת חידוש<button class="x" onclick="closeMd()">✕</button></h2>
+  <div class="fg">
+    <label class="f">מה לחדש<select onchange="RN.type=this.value;RN.sel=null;renewDialog()">${Object.entries(RENEW).map(([k, v]) => `<option value="${k}" ${k === RN.type ? 'selected' : ''}>${v.t}</option>`).join('')}</select></label>
+    <label class="f">מסתיים בתוך<select onchange="RN.days=this.value;RN.sel=null;renewDialog()">${[[30, '30 יום'], [45, '45 יום'], [60, 'חודשיים'], [90, '3 חודשים'], [365, 'שנה']].map(([d, t]) => `<option value="${d}" ${+d === +RN.days ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+  </div>
+  <div class="note">סמן את העובדים שייכללו במכתב:</div>
+  ${ps.map(p => { const d = p[T.f], n = daysTo(d); return `<label class="doc" style="cursor:pointer"><input type="checkbox" class="rn_w" value="${p.id}" ${RN.sel.includes(p.id) ? 'checked' : ''}>
+    <div class="i"><b>${esc(label(p))} <span style="font-weight:400;font-size:12px;opacity:.7" dir="ltr">${esc(p.name || '')}</span></b>
+    <span>${d ? (n < 0 ? '⛔ פג ' : 'עד ') + dmy(d) + (n >= 0 ? ` (עוד ${n} ימים)` : '') : 'אין תאריך'}${T.to(p) ? ' · ' + esc(T.to(p)) : ''}</span></div></label>`; }).join('') || '<div class="empty">אין עובדים פעילים</div>'}
+  <div class="fg" style="margin-top:10px">
+    <label class="f">אל (חברת הביטוח / סוכן / גורם מטפל)<input id="rn_to" placeholder="${RN.type === 'ins' ? 'ריק = לפי חברת הביטוח בכרטיס' : 'למשל: לשכת הקשר / התאגיד'}"></label>
+    <label class="f">לידי (לא חובה)<input id="rn_att"></label>
+    <label class="f">חתימה<input id="rn_sign" value="${esc(sign)}"></label>
+    <label class="f" style="grid-column:1/-1">הערה נוספת במכתב (לא חובה)<textarea id="rn_note" rows="2"></textarea></label>
+  </div>
+  <div class="row"><button class="btn" onclick="makeRenew()">📄 הפק מכתב PDF</button></div>
+  <div class="note">${RN.type === 'ins' ? 'אם יש כמה חברות ביטוח ולא מילאת "אל" — יופק מכתב נפרד לכל חברה. ' : ''}המכתב נפתח בחלון חדש — בטלפון בוחרים "שמור כ-PDF" ואז שולחים במייל או בוואטסאפ.</div>`;
+  openMd();
+}
+function makeRenew() {
+  const T = RENEW[RN.type];
+  const ids = [...document.querySelectorAll('.rn_w')].filter(x => x.checked).map(x => x.value);
+  if (!ids.length) { toast('סמן לפחות עובד אחד'); return; }
+  const to = $('rn_to').value.trim(), att = $('rn_att').value.trim(), sign = $('rn_sign').value.trim(), note = $('rn_note').value.trim();
+  if (sign) localStorage.setItem('lw_signer', sign);
+  const ps = ids.map(id => S.people[id]);
+  const groups = {};
+  ps.forEach(p => { const k = to || T.to(p) || '—'; (groups[k] = groups[k] || []).push(p); });
+  const e = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const heb = new Date().toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' });
+  const letter = (rcpt, list) => `<div class="pg">
+    <div class="lh"><div><div class="co">אתרוגי לוריא בע"מ</div><div class="sm">ח.פ. 516151610 · רחוב הרב אשכנזי 10, כפר חב"ד 6084000 · Lurietrogim@gmail.com</div></div></div>
+    <div class="dt">${heb}</div>
+    <div class="to">לכבוד<br><b>${e(rcpt === '—' ? '' : rcpt)}</b>${att ? '<br>לידי: ' + e(att) : ''}</div>
+    <div class="subj">הנדון: ${e(T.subj)}</div>
+    <p>שלום רב,</p>
+    <p>${T.body}</p>
+    <table><thead><tr><th>#</th><th>שם העובד (כבדרכון)</th><th>מס׳ דרכון</th>${T.numT ? `<th>${T.numT}</th>` : ''}<th>תוקף נוכחי עד</th></tr></thead><tbody>
+    ${list.map((p, i) => `<tr><td>${i + 1}</td><td dir="ltr" style="text-align:right">${e(p.name || label(p))}</td><td dir="ltr" style="text-align:right">${e(p.passNo || '')}</td>${T.numT ? `<td dir="ltr" style="text-align:right">${e(T.num(p))}</td>` : ''}<td>${p[T.f] ? dmy(p[T.f]) : ''}</td></tr>`).join('')}
+    </tbody></table>
+    ${note ? `<p>${e(note).replace(/\n/g, '<br>')}</p>` : ''}
+    <p>נבקש לקבל אישור על החידוש${RN.type === 'ins' ? ' ופוליסות מעודכנות' : ''} לכתובת המייל שלמעלה.</p>
+    <p>בתודה מראש,</p>
+    <div class="sig"><div class="ln"></div>${e(sign)}<br>אתרוגי לוריא בע"מ</div>
+  </div>`;
+  const html = `<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="UTF-8"><title>${e(T.subj)}</title><style>
+    @page{size:A4;margin:16mm}*{box-sizing:border-box}body{font-family:Arial,'Heebo',sans-serif;color:#222;margin:0;font-size:14px;line-height:1.7}
+    .pg{padding:20px 6px;page-break-after:always}.pg:last-child{page-break-after:auto}
+    .lh{border-bottom:3px solid #1b5e20;padding-bottom:8px;margin-bottom:18px}.co{font-size:22px;font-weight:800;color:#1b5e20}.sm{font-size:11px;color:#555}
+    .dt{text-align:left;margin-bottom:14px}.to{margin-bottom:16px}.subj{font-weight:800;text-decoration:underline;margin:10px 0 14px}
+    table{width:100%;border-collapse:collapse;margin:12px 0 16px;font-size:13px}th{background:#e8f5e9;border:1px solid #9e9e9e;padding:6px;text-align:right}td{border:1px solid #bdbdbd;padding:6px}
+    .sig{margin-top:40px;width:220px}.sig .ln{border-top:1px solid #333;margin-bottom:4px;height:30px}
+    .np{position:sticky;top:0;background:#fff;text-align:center;padding:8px}.np button{font-size:15px;padding:8px 18px;border:none;border-radius:8px;background:#1b5e20;color:#fff;margin:0 4px}
+    @media print{.np{display:none}}
+  </style></head><body><div class="np"><button onclick="print()">🖨️ הדפס / שמור PDF</button><button onclick="close()" style="background:#777">סגור</button></div>
+  ${Object.entries(groups).map(([k, l]) => letter(k, l)).join('')}
+  <script>setTimeout(function(){try{print()}catch(e){}},500)<\/script></body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) { toast('הדפדפן חסם את החלון — אפשר חלונות קופצים ונסה שוב'); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+  closeMd();
+}
+
 /* ---------- תיקון מסמך קיים ---------- */
 let ED = null;
 function editDoc(id) {
@@ -811,7 +907,7 @@ async function loadPdfLib() {
   return window.PDFLib;
 }
 // מחזיר שורות סיכום אם פוצל, או null אם הקובץ הוא מסמך אחד
-async function splitAndFile(fileObj, chosenCat, chosenWid, status) {
+async function splitAndFile(fileObj, chosenCat, chosenWid, status, srcHash) {
   const L = await loadPdfLib();
   const buf = await fileObj.arrayBuffer();
   const src = await L.PDFDocument.load(buf, { ignoreEncryption: true });
@@ -841,6 +937,8 @@ async function splitAndFile(fileObj, chosenCat, chosenWid, status) {
     const exp = c.exp && /^\d{4}-\d{2}-\d{2}$/.test(info.expiry || '') ? info.expiry : '';
     const owner = S.people[r.wid];
     const title = docTitle(r.cat, period, exp);
+    const dup = findDup(r.wid, r.cat, period, exp, null);
+    if (dup) { out.push(`⏭️ עמ׳ ${g.idx[0] + 1}${g.idx.length > 1 ? '-' + (g.idx[g.idx.length - 1] + 1) : ''} — ${dupMsg(dup)}`); continue; }
     const fname = label(owner) + ' - ' + title.replace(/\//g, '-') + '.pdf';
     status(`שומר ${k}/${groups.length}: ${title}…`);
     const doc = await L.PDFDocument.create();
@@ -848,6 +946,7 @@ async function splitAndFile(fileObj, chosenCat, chosenWid, status) {
     const part = new File([await doc.save()], fname, { type: 'application/pdf' });
     const up = await Drive.upload(part, fname, await Drive.workerFolder(owner, r.cat));
     const d = { id: uid('d'), wid: r.wid, cat: r.cat, title, fname, fileId: up.id, link: up.webViewLink || ('https://drive.google.com/file/d/' + up.id + '/view'), date: today(), pages: g.idx.length };
+    if (srcHash) d.srcHash = srcHash;
     if (period) d.period = period; if (exp) d.exp = exp;
     if (exp && /^\d{4}-\d{2}-\d{2}$/.test(info.validFrom || '') && info.validFrom < exp) d.from = info.validFrom;
     if (info.hours) d.hours = info.hours; if (info.net) d.net = info.net;
@@ -862,8 +961,13 @@ async function edSplit() {
   try {
     st.innerHTML = '<span class="spin"></span> מוריד את הקובץ מהדרייב…';
     const file = await Drive.download(d.fileId, d.fname || 'doc.pdf');
-    const parts = await splitAndFile(file, 'auto', d.wid, t => st.innerHTML = '<span class="spin"></span> ' + t);
+    // המסמך המקורי לא נחשב כפילות של החלקים שלו
+    const orig = S.docs[d.id]; const tmp = { ...S.docs }; delete tmp[d.id]; S.docs = tmp;
+    let parts;
+    try { parts = await splitAndFile(file, 'auto', d.wid, t => st.innerHTML = '<span class="spin"></span> ' + t, null); }
+    finally { if (!S.docs[d.id] && (!parts)) S.docs = { ...S.docs, [d.id]: orig }; }
     if (!parts) { st.innerHTML = 'ℹ️ Claude לא מצא בקובץ כמה מסמכים נפרדים — לא פוצל'; $('e_split').disabled = false; return; }
+    S.docs = { ...S.docs, [d.id]: orig };
     await Cloud.del('docs', d.id);
     st.innerHTML = '✅ פוצל ל-' + parts.length + ' מסמכים:<br>' + parts.join('<br>') + '<br><span style="opacity:.7">הקובץ המקורי נשאר בדרייב.</span>';
     $('e_go').textContent = 'סגור'; $('e_go').onclick = () => { closeMd(); render(); };
