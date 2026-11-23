@@ -571,7 +571,7 @@ function makePdf() {
   const ps = ids.map(id => S.items[id]).filter(Boolean);
   const e = esc;
   const heb = new Date().toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' });
-  const head = `<div class="lh"><div><div class="co">אתרוגי לוריא בע"מ</div><div class="sm">ח.פ. 516151610 · רחוב הרב אשכנזי 10, כפר חב"ד 6084000 · Lurietrogim@gmail.com</div></div><a class="qr" href="${WA_LINK}"><img src="${WA_QR}" alt="WhatsApp"><span>וואטסאפ — מנדי</span></a></div>`;
+  const head = `<div class="lh"><div><div class="co">אתרוגי לוריא בע"מ</div><div class="sm">ח.פ. 516151610 · רחוב הרב אשכנזי 10, כפר חב"ד 6084000 · Lurietrogim@gmail.com</div></div></div>`;
   let pages = '', title = '';
   if (PD.kind === 'ins') {
     const to = $('pd_to').value.trim(), att = $('pd_att').value.trim(), sign = $('pd_sign').value.trim(), note = $('pd_note').value.trim();
@@ -589,9 +589,9 @@ function makePdf() {
       ${list.map((p, i) => `<tr><td>${i + 1}</td><td>${e(p.nick || p.type || '')}</td><td dir="ltr" style="text-align:right">${e(p.plate || '')}</td><td>${e(p.make || '')}</td><td>${e(p.year || '')}</td><td dir="ltr" style="text-align:right">${e(p.insNo || '')}</td><td>${dmy(p.ins1Exp)}</td><td>${dmy(p.ins2Exp)}</td></tr>`).join('')}
       </tbody></table>
       ${note ? `<p>${e(note).replace(/\n/g, '<br>')}</p>` : ''}
-      <p>נבקש לקבל את הפוליסות המעודכנות לכתובת המייל שלמעלה, או בוואטסאפ דרך הברקוד.</p>
+      <p>נבקש לקבל את הפוליסות המעודכנות לכתובת המייל שלמעלה, או בוואטסאפ דרך הברקוד שלמטה.</p>
       <p>בתודה מראש,</p>
-      <div class="sig"><div class="ln"></div>${e(sign)}<br>אתרוגי לוריא בע"מ</div></div>`).join('');
+      <div class="sig"><div class="ln"></div>${e(sign)}<br>אתרוגי לוריא בע"מ<a class="qr" href="${WA_LINK}"><img src="${WA_QR}" alt="WhatsApp"><span>סרקו לוואטסאפ</span></a></div></div>`).join('');
   } else {
     title = 'דוח מצב כלי רכב';
     const y = String(new Date().getFullYear());
@@ -607,14 +607,15 @@ function makePdf() {
       ${ps.map(p => { const a = sum(p, 'serv'), b = sum(p, 'fine'); ts += a; tf += b; return `<tr><td>${e(label(p))}</td><td>₪${a.toLocaleString()}</td><td>₪${b.toLocaleString()}</td></tr>`; }).join('')}
       <tr style="font-weight:800;background:#f1f8e9"><td>סה"כ</td><td>₪${ts.toLocaleString()}</td><td>₪${tf.toLocaleString()}</td></tr>
       </tbody></table>
-      <div class="sm">אדום = פג תוקף · כתום = פחות מ-45 יום</div></div>`;
+      <div class="sm">אדום = פג תוקף · כתום = פחות מ-45 יום</div>
+      <div class="sig" style="margin-top:24px">${e(localStorage.getItem('lv_signer') || localStorage.getItem('lw_signer') || 'מנדי ירוסלבסקי')}<br>אתרוגי לוריא בע"מ<a class="qr" href="${WA_LINK}"><img src="${WA_QR}" alt="WhatsApp"><span>סרקו לוואטסאפ</span></a></div></div>`;
   }
   const html = `<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="UTF-8"><title>${title}</title><style>
     @page{size:A4;margin:16mm}*{box-sizing:border-box}body{font-family:Arial,'Heebo',sans-serif;color:#222;margin:0;font-size:14px;line-height:1.7}
     .pg{padding:20px 6px;page-break-after:always}.pg:last-child{page-break-after:auto}
     .lh{border-bottom:3px solid #1b5e20;padding-bottom:8px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:center;gap:12px}
     .co{font-size:22px;font-weight:800;color:#1b5e20}.sm{font-size:11px;color:#555}
-    .qr{text-align:center;font-size:10px;color:#555;line-height:1.3;text-decoration:none}.qr img{width:78px;height:78px;display:block;margin:0 auto 2px;image-rendering:pixelated}
+    .qr{display:block;width:96px;margin-top:10px;text-align:center;font-size:10px;color:#555;line-height:1.3;text-decoration:none}.qr img{width:84px;height:84px;display:block;margin:0 auto 2px;image-rendering:pixelated}
     .dt{text-align:left;margin-bottom:14px}.to{margin-bottom:16px}.subj{font-weight:800;text-decoration:underline;margin:10px 0 14px}
     table{width:100%;border-collapse:collapse;margin:12px 0 16px;font-size:12.5px}th{background:#e8f5e9;border:1px solid #9e9e9e;padding:6px;text-align:right}td{border:1px solid #bdbdbd;padding:6px}
     td.bad{color:#c62828;font-weight:700}td.warn{color:#e65100;font-weight:700}td.mu{color:#aaa}
