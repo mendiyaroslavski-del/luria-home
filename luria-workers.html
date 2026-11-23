@@ -758,6 +758,7 @@ async function impApply() {
 }
 
 /* ---------- מכתב בקשת חידוש (ביטוח / ויזה / דרכון) ---------- */
+const WA_QR = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAAEsAQAAAABRBrPYAAAEiUlEQVR42u2aT46jRhjFfx+Q2ItWILvZgZRFlukbmLlJHyEnCOXkAjlC3yTVJ5jZZhENlkaaWdJRj4Rl8JdFYRvb2EW6e5MMbLqhnori8Xjfn7IoI47HgFHHBPs/wtbijgCWiTtJaEXy/sjxbMnE20gYWouqqtaiLFRVVW1cQ2HTOtyNVMHAhNlE7xh6QwXiWhTSOlQ1adnxuh+pjmerLol4Evk5bHs4W80BVgmwNCew/oSzBiBuwNhJvS+HRX29s/oRBFjPKd5mf068va7IoRXgcQ7m3Go6v1ZVbYC02ltNz8knep8Ha0VEZA6Sr+agBmjFPGSHkYm3V/AQHjIihMXxVSfywwEQKoWqNhS9gUnknJrDKWx7CbZ2lK8DIK5VVCRZRyzzlUSwFImmPMQHq647+VKS2UYKrWaqkFYzVbWpfhH5w56kK8Hgh5JPHnKFXgNsT2PjrmKJnIc0UJRxLapacoiaNtWGzkomD3m+k4cqwGwjCrSisPphI8D8CyrWHs8WuJclx1ZiyuGbfgvc+Nf2Bgj9sEwlOdfKGSz/m0fufDAxv0Oe+GCBGnh/44NFW+Dp4iM8iuNt/kRRdna+joCMNugCJUUJLhvUcqYN2lDYXRgdzAbLN4QjCLF3YO+vBnEAo3DrfQsaAvPKB9tGQFR71zYHgsYHa5JOc9dh7na/DNT17m/YwKIMq8VKVe2ueUKhFUf0BgBRld8PRc3zL6sAMuNZW2nGfKdzF+W9shTXirUemAXrJn0FD0mCfTQbhrXdf4IByt3lpST9bLDqRP6biqrW6a7kMcSXnTzyPYIZDiLPdsvFyNnMCJghs+NmK6Hxw5Lq42DrNUJEUm3FLWpe/wWZSL6K10JhWQdDuWXU2NzPN0FrYu8j5AhQq89DHG+5n5CcxGs1meGWk7J7eLYbstJcL9ibxBIOyDxgtpF9sr26AVDzEGjx9qfP0rLM+WY7FIwAfhVMniRBsFvXoCzVS2+1d1a/yBv/V2+A2ms1tAbee9dWfryH/M4rpGxGeyVm7fFr81EOD236HdqijHULxBvrysoGFiWhUlg4C5RJZBmXh8QGbp+8sOpnsF5ZpnxHzL0PdodoNSKIA7Tj/O3pQrJtS6f1agBxCJRqUteVKtNQZ6pVuK/eSYfykEdY59brbxXwcPeV7y8ApNqAWscohM5+QoXFjt79iOt5qyuTWJSzBgrLbDvVMi/b5SlUG1GItaHXooIuDT+IvLnQNiknesfRi+uemH72Wh33BlNVpdAqdN2V3aWprn+h1QCiamJt9ic27bYyz+mdeoNje4NuI37x7tNnUf1QIlsW7z5tnoB4o8riwz2iVQQBWBe4sxWBkN92zZMIyLPvj27aTOq93gCHqp8n93bl1bhSvnSb910KppPIX9oA32d5cadO1y5UVVa7/YWr9zWTRfthruC05UBnoS/yXZ6y+4VK19aaAqV/Ix69PJuqVgDLpOthzTZSaOky7/hLcCryZOzO3b+F/QffQjQ6DzF0eUisW1Q7rceNaNWHddmgM+8DbMoGnw+T6Ye7XyvsH+nKniOljcpCAAAAAElFTkSuQmCC', WA_LINK = 'https://wa.me/qr/J6OHYKL66FVNN1';   // ברקוד וואטסאפ של מנדי — מופיע במכתבים
 const RENEW = {
   ins:  { t: 'ביטוח בריאות', f: 'insExp', to: p => p.insCo || '', subj: 'בקשה לחידוש ביטוח בריאות לעובדים זרים', num: p => p.insNo || '', numT: 'מס׳ פוליסה',
           body: 'הננו מבקשים לחדש את פוליסת ביטוח הבריאות של העובדים המפורטים להלן, ברצף וללא הפסקה בכיסוי, החל מהיום שלמחרת תום הביטוח הנוכחי ולמשך שנה.' },
@@ -804,7 +805,7 @@ function makeRenew() {
   const e = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
   const heb = new Date().toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' });
   const letter = (rcpt, list) => `<div class="pg">
-    <div class="lh"><div><div class="co">אתרוגי לוריא בע"מ</div><div class="sm">ח.פ. 516151610 · רחוב הרב אשכנזי 10, כפר חב"ד 6084000 · Lurietrogim@gmail.com</div></div></div>
+    <div class="lh"><div><div class="co">אתרוגי לוריא בע"מ</div><div class="sm">ח.פ. 516151610 · רחוב הרב אשכנזי 10, כפר חב"ד 6084000 · Lurietrogim@gmail.com</div></div><a class="qr" href="${WA_LINK}"><img src="${WA_QR}" alt="WhatsApp"><span>וואטסאפ — מנדי</span></a></div>
     <div class="dt">${heb}</div>
     <div class="to">לכבוד<br><b>${e(rcpt === '—' ? '' : rcpt)}</b>${att ? '<br>לידי: ' + e(att) : ''}</div>
     <div class="subj">הנדון: ${e(T.subj)}</div>
@@ -821,7 +822,7 @@ function makeRenew() {
   const html = `<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="UTF-8"><title>${e(T.subj)}</title><style>
     @page{size:A4;margin:16mm}*{box-sizing:border-box}body{font-family:Arial,'Heebo',sans-serif;color:#222;margin:0;font-size:14px;line-height:1.7}
     .pg{padding:20px 6px;page-break-after:always}.pg:last-child{page-break-after:auto}
-    .lh{border-bottom:3px solid #1b5e20;padding-bottom:8px;margin-bottom:18px}.co{font-size:22px;font-weight:800;color:#1b5e20}.sm{font-size:11px;color:#555}
+    .lh{border-bottom:3px solid #1b5e20;padding-bottom:8px;margin-bottom:18px}.lh{display:flex;justify-content:space-between;align-items:center;gap:12px}.qr{text-align:center;font-size:10px;color:#555;line-height:1.3;text-decoration:none}.qr img{width:78px;height:78px;display:block;margin:0 auto 2px;image-rendering:pixelated}.co{font-size:22px;font-weight:800;color:#1b5e20}.sm{font-size:11px;color:#555}
     .dt{text-align:left;margin-bottom:14px}.to{margin-bottom:16px}.subj{font-weight:800;text-decoration:underline;margin:10px 0 14px}
     table{width:100%;border-collapse:collapse;margin:12px 0 16px;font-size:13px}th{background:#e8f5e9;border:1px solid #9e9e9e;padding:6px;text-align:right}td{border:1px solid #bdbdbd;padding:6px}
     .sig{margin-top:40px;width:220px}.sig .ln{border-top:1px solid #333;margin-bottom:4px;height:30px}
