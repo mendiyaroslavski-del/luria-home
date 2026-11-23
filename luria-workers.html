@@ -243,7 +243,7 @@ const FIELDS = [
   ['phone', 'טלפון', 'tel', 'ltr'], ['start', 'תחילת עבודה', 'date'],
   ['passNo', 'מספר דרכון', 'text', 'ltr'], ['passExp', 'תוקף דרכון', 'date'],
   ['visaNo', 'מספר ויזה / אשרה', 'text', 'ltr'], ['visaExp', 'תוקף ויזה', 'date'],
-  ['insCo', 'חברת ביטוח', 'text'], ['insNo', 'מספר פוליסה', 'text', 'ltr'],
+  ['insCo', 'חברת ביטוח', 'text'], ['insNo', 'מספר פוליסה', 'text', 'ltr'], ['insAgent', 'סוכן ביטוח (נמען למכתבים)', 'text'],
   ['insExp', 'תוקף ביטוח', 'date'], ['bankName', 'בנק', 'text'],
   ['bankBranch', 'מספר סניף', 'text', 'ltr'], ['bankAcc', 'מספר חשבון', 'text', 'ltr'],
   ['bankOpen', 'תאריך פתיחת חשבון', 'date'],
@@ -615,7 +615,7 @@ async function applyToWorker(wid, cat, info, exp) {
   if (cat === 'visa') { const cur = later('visaExp', exp); set('visaNo', info.docNumber, cur); }
   if (cat === 'pass') { const cur = later('passExp', exp); set('passNo', info.passportNo || info.docNumber, cur); set('birth', /^\d{4}-\d{2}-\d{2}$/.test(info.birthDate || '') ? info.birthDate : ''); set('name', info.workerName); }
   if (cat === 'pay' || cat === 'cont') { set('bankName', info.bankName); set('bankBranch', info.bankBranch); set('bankAcc', info.bankAcc); }
-  if (cat === 'ins') { const cur = later('insExp', exp); set('insCo', info.company, cur); set('insNo', info.docNumber, cur); }
+  if (cat === 'ins') { const cur = later('insExp', exp); set('insCo', info.company, cur); set('insNo', info.docNumber, cur); set('insAgent', info.agent, cur); }
   if (ch) await Cloud.put('people', wid, p);
 }
 
@@ -760,7 +760,7 @@ async function impApply() {
 /* ---------- מכתב בקשת חידוש (ביטוח / ויזה / דרכון) ---------- */
 const WA_QR = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAAEsAQAAAABRBrPYAAAEiUlEQVR42u2aT46jRhjFfx+Q2ItWILvZgZRFlukbmLlJHyEnCOXkAjlC3yTVJ5jZZhENlkaaWdJRj4Rl8JdFYRvb2EW6e5MMbLqhnori8Xjfn7IoI47HgFHHBPs/wtbijgCWiTtJaEXy/sjxbMnE20gYWouqqtaiLFRVVW1cQ2HTOtyNVMHAhNlE7xh6QwXiWhTSOlQ1adnxuh+pjmerLol4Evk5bHs4W80BVgmwNCew/oSzBiBuwNhJvS+HRX29s/oRBFjPKd5mf068va7IoRXgcQ7m3Go6v1ZVbYC02ltNz8knep8Ha0VEZA6Sr+agBmjFPGSHkYm3V/AQHjIihMXxVSfywwEQKoWqNhS9gUnknJrDKWx7CbZ2lK8DIK5VVCRZRyzzlUSwFImmPMQHq647+VKS2UYKrWaqkFYzVbWpfhH5w56kK8Hgh5JPHnKFXgNsT2PjrmKJnIc0UJRxLapacoiaNtWGzkomD3m+k4cqwGwjCrSisPphI8D8CyrWHs8WuJclx1ZiyuGbfgvc+Nf2Bgj9sEwlOdfKGSz/m0fufDAxv0Oe+GCBGnh/44NFW+Dp4iM8iuNt/kRRdna+joCMNugCJUUJLhvUcqYN2lDYXRgdzAbLN4QjCLF3YO+vBnEAo3DrfQsaAvPKB9tGQFR71zYHgsYHa5JOc9dh7na/DNT17m/YwKIMq8VKVe2ueUKhFUf0BgBRld8PRc3zL6sAMuNZW2nGfKdzF+W9shTXirUemAXrJn0FD0mCfTQbhrXdf4IByt3lpST9bLDqRP6biqrW6a7kMcSXnTzyPYIZDiLPdsvFyNnMCJghs+NmK6Hxw5Lq42DrNUJEUm3FLWpe/wWZSL6K10JhWQdDuWXU2NzPN0FrYu8j5AhQq89DHG+5n5CcxGs1meGWk7J7eLYbstJcL9ibxBIOyDxgtpF9sr26AVDzEGjx9qfP0rLM+WY7FIwAfhVMniRBsFvXoCzVS2+1d1a/yBv/V2+A2ms1tAbee9dWfryH/M4rpGxGeyVm7fFr81EOD236HdqijHULxBvrysoGFiWhUlg4C5RJZBmXh8QGbp+8sOpnsF5ZpnxHzL0PdodoNSKIA7Tj/O3pQrJtS6f1agBxCJRqUteVKtNQZ6pVuK/eSYfykEdY59brbxXwcPeV7y8ApNqAWscohM5+QoXFjt79iOt5qyuTWJSzBgrLbDvVMi/b5SlUG1GItaHXooIuDT+IvLnQNiknesfRi+uemH72Wh33BlNVpdAqdN2V3aWprn+h1QCiamJt9ic27bYyz+mdeoNje4NuI37x7tNnUf1QIlsW7z5tnoB4o8riwz2iVQQBWBe4sxWBkN92zZMIyLPvj27aTOq93gCHqp8n93bl1bhSvnSb910KppPIX9oA32d5cadO1y5UVVa7/YWr9zWTRfthruC05UBnoS/yXZ6y+4VK19aaAqV/Ix69PJuqVgDLpOthzTZSaOky7/hLcCryZOzO3b+F/QffQjQ6DzF0eUisW1Q7rceNaNWHddmgM+8DbMoGnw+T6Ye7XyvsH+nKniOljcpCAAAAAElFTkSuQmCC', WA_LINK = 'https://wa.me/qr/J6OHYKL66FVNN1';   // ברקוד וואטסאפ של מנדי — מופיע במכתבים
 const RENEW = {
-  ins:  { t: 'ביטוח בריאות', f: 'insExp', to: p => p.insCo || '', subj: 'בקשה לחידוש ביטוח בריאות לעובדים זרים', num: p => p.insNo || '', numT: 'מס׳ פוליסה',
+  ins:  { t: 'ביטוח בריאות', f: 'insExp', to: p => p.insAgent || p.insCo || '', subj: 'בקשה לחידוש ביטוח בריאות לעובדים זרים', num: p => p.insNo || '', numT: 'מס׳ פוליסה',
           body: 'הננו מבקשים לחדש את פוליסת ביטוח הבריאות של העובדים המפורטים להלן, ברצף וללא הפסקה בכיסוי, החל מהיום שלמחרת תום הביטוח הנוכחי ולמשך שנה.' },
   visa: { t: 'ויזה / אשרת עבודה', f: 'visaExp', to: () => '', subj: 'בקשה לחידוש אשרת עבודה לעובדים זרים בחקלאות', num: p => p.visaNo || '', numT: 'מס׳ אשרה',
           body: 'הננו מבקשים לטפל בחידוש אשרות העבודה של העובדים המפורטים להלן, המועסקים אצלנו בחקלאות, לפני תום תוקפן.' },
@@ -784,13 +784,13 @@ function renewDialog() {
     <div class="i"><b>${esc(label(p))} <span style="font-weight:400;font-size:12px;opacity:.7" dir="ltr">${esc(p.name || '')}</span></b>
     <span>${d ? (n < 0 ? '⛔ פג ' : 'עד ') + dmy(d) + (n >= 0 ? ` (עוד ${n} ימים)` : '') : 'אין תאריך'}${T.to(p) ? ' · ' + esc(T.to(p)) : ''}</span></div></label>`; }).join('') || '<div class="empty">אין עובדים פעילים</div>'}
   <div class="fg" style="margin-top:10px">
-    <label class="f">אל (חברת הביטוח / סוכן / גורם מטפל)<input id="rn_to" placeholder="${RN.type === 'ins' ? 'ריק = לפי חברת הביטוח בכרטיס' : 'למשל: לשכת הקשר / התאגיד'}"></label>
+    <label class="f">אל (חברת הביטוח / סוכן / גורם מטפל)<input id="rn_to" placeholder="${RN.type === 'ins' ? 'ריק = לפי סוכן הביטוח בכרטיס' : 'למשל: לשכת הקשר / התאגיד'}"></label>
     <label class="f">לידי (לא חובה)<input id="rn_att"></label>
     <label class="f">חתימה<input id="rn_sign" value="${esc(sign)}"></label>
     <label class="f" style="grid-column:1/-1">הערה נוספת במכתב (לא חובה)<textarea id="rn_note" rows="2"></textarea></label>
   </div>
   <div class="row"><button class="btn" onclick="makeRenew()">📄 הפק מכתב PDF</button></div>
-  <div class="note">${RN.type === 'ins' ? 'אם יש כמה חברות ביטוח ולא מילאת "אל" — יופק מכתב נפרד לכל חברה. ' : ''}המכתב נפתח בחלון חדש — בטלפון בוחרים "שמור כ-PDF" ואז שולחים במייל או בוואטסאפ.</div>`;
+  <div class="note">${RN.type === 'ins' ? 'הנמען הוא סוכן הביטוח שבכרטיס העובד (אם אין — חברת הביטוח). אם יש כמה סוכנים ולא מילאת "אל" — יופק מכתב נפרד לכל סוכן. ' : ''}המכתב נפתח בחלון חדש — בטלפון בוחרים "שמור כ-PDF" ואז שולחים במייל או בוואטסאפ.</div>`;
   openMd();
 }
 function makeRenew() {
@@ -1073,7 +1073,7 @@ f = תחילת תוקף YYYY-MM-DD או null
     const names = active().map(p => p.name + (p.nick ? ' (' + p.nick + ')' : '')).join(' | ');
     const prompt = `זה מסמך של עובד זר (כנראה מתאילנד) בחווה בישראל. ${CAT[cat] ? 'סוג המסמך שהמשתמש בחר: ' + CAT[cat].t + ' — אבל קבע בעצמך לפי התוכן.' : ''}
 החזר JSON בלבד, בלי טקסט נוסף:
-{"docType":"סוג המסמך בפועל, אחד מ: pay (תלוש שכר), hours (דוח שעות עבודה), ins (ביטוח בריאות / פוליסה), visa (ויזה / אשרת עבודה / רישיון שהייה), pass (דרכון), cont (חוזה העסקה), other","workerName":"שם העובד כפי שמופיע במסמך, באנגלית אם יש","passportNo":"מספר דרכון אם מופיע או null","docNumber":"מספר המסמך/פוליסה/ויזה או null","expiry":"תאריך תפוגה / סוף תוקף YYYY-MM-DD או null","validFrom":"תחילת תוקף / תחילת ביטוח YYYY-MM-DD או null","birthDate":"YYYY-MM-DD או null","period":"החודש שהמסמך מתייחס אליו YYYY-MM (לתלוש שכר/דוח שעות) או null","company":"שם חברת הביטוח אם רלוונטי או null","bankName":"שם הבנק לתשלום השכר אם מופיע או null","bankBranch":"מספר סניף או null","bankAcc":"מספר חשבון בנק או null","hours":"סך שעות העבודה בחודש — מספר או null","net":"שכר נטו לתשלום — מספר או null"}
+{"docType":"סוג המסמך בפועל, אחד מ: pay (תלוש שכר), hours (דוח שעות עבודה), ins (ביטוח בריאות / פוליסה), visa (ויזה / אשרת עבודה / רישיון שהייה), pass (דרכון), cont (חוזה העסקה), other","workerName":"שם העובד כפי שמופיע במסמך, באנגלית אם יש","passportNo":"מספר דרכון אם מופיע או null","docNumber":"מספר המסמך/פוליסה/ויזה או null","expiry":"תאריך תפוגה / סוף תוקף YYYY-MM-DD או null","validFrom":"תחילת תוקף / תחילת ביטוח YYYY-MM-DD או null","birthDate":"YYYY-MM-DD או null","period":"החודש שהמסמך מתייחס אליו YYYY-MM (לתלוש שכר/דוח שעות) או null","company":"שם חברת הביטוח אם רלוונטי או null","agent":"שם סוכן הביטוח / סוכנות הביטוח כפי שמופיע בפוליסה (לא חברת הביטוח עצמה) או null","bankName":"שם הבנק לתשלום השכר אם מופיע או null","bankBranch":"מספר סניף או null","bankAcc":"מספר חשבון בנק או null","hours":"סך שעות העבודה בחודש — מספר או null","net":"שכר נטו לתשלום — מספר או null"}
 רשימת העובדים הקיימים: ${names}`;
     const models = ['claude-sonnet-5-5', 'claude-sonnet-5', 'claude-sonnet-4-5'];
     let last = '';

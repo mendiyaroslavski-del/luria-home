@@ -243,7 +243,7 @@ const FIELDS = [
   ['year', 'שנת ייצור', 'number'], ['owner', 'בעלות', 'text'],
   ['licExp', 'תוקף רישיון רכב', 'date'], ['testDate', 'מועד טסט הבא', 'date'],
   ['ins1Exp', 'תוקף ביטוח חובה', 'date'], ['ins2Exp', 'תוקף ביטוח מקיף / צד ג׳', 'date'],
-  ['insCo', 'חברת ביטוח', 'text'], ['insNo', 'מספר פוליסה', 'text', 'ltr'],
+  ['insCo', 'חברת ביטוח', 'text'], ['insNo', 'מספר פוליסה', 'text', 'ltr'], ['insAgent', 'סוכן ביטוח (נמען למכתבים)', 'text'],
   ['servNext', 'טיפול הבא (תאריך)', 'date'], ['meter', 'שעות מנוע / ק"מ אחרון', 'text'],
   ['driver', 'נהג קבוע', 'text'], ['status', 'סטטוס', 'select'],
   ['end', 'תאריך מכירה / גריטה', 'date'], ['notes', 'הערות', 'textarea']
@@ -494,8 +494,9 @@ async function applyToWorker(wid, cat, info, exp) {
   fill('plate', info.plate); fill('make', info.make); fill('chassis', info.chassis);
   if (cat === 'lic') later('licExp', exp);
   if (cat === 'test') { later('testDate', exp); later('licExp', info.licExpiry); }
-  if (cat === 'ins1') { later('ins1Exp', exp); fill('insCo', info.company); }
-  if (cat === 'ins2') { later('ins2Exp', exp); fill('insCo', info.company); fill('insNo', info.docNumber); }
+  const agent = (f) => { if (info.agent && (!p.insAgent || !exp || exp >= (p[f] || ''))) { if (p.insAgent !== String(info.agent)) { p.insAgent = String(info.agent); ch = true; } } };
+  if (cat === 'ins1') { later('ins1Exp', exp); fill('insCo', info.company); agent('ins1Exp'); }
+  if (cat === 'ins2') { later('ins2Exp', exp); fill('insCo', info.company); fill('insNo', info.docNumber); agent('ins2Exp'); }
   if (cat === 'serv') { later('servNext', info.nextService); if (info.meter) { p.meter = String(info.meter); ch = true; } }
   if (ch) await Cloud.put('items', wid, p);
 }
@@ -511,7 +512,7 @@ const AI = {
     const names = active().map(p => label(p) + (p.plate ? ' [' + p.plate + ']' : '')).join(' | ');
     const prompt = `זה מסמך של כלי רכב של חווה בישראל (טרקטור, רינג׳ר או רכב). סוג המסמך המשוער: ${CAT[cat].t}.
 החזר JSON בלבד, בלי טקסט נוסף:
-{"plate":"מספר הרישוי (ספרות בלבד) או null","chassis":"מספר שלדה או null","make":"יצרן ודגם או null","docNumber":"מספר פוליסה / מסמך או null","docDate":"תאריך המסמך YYYY-MM-DD או null","expiry":"תאריך תפוגה / תוקף עד YYYY-MM-DD (לרישיון, טסט וביטוח) או null","licExpiry":"אם זה טסט ומופיע תוקף רישיון — YYYY-MM-DD או null","company":"חברת ביטוח או null","amount":"סכום לתשלום ₪ — מספר או null","meter":"שעות מנוע או קילומטראז׳ — מספר או null","nextService":"מועד טיפול הבא YYYY-MM-DD או null"}
+{"plate":"מספר הרישוי (ספרות בלבד) או null","chassis":"מספר שלדה או null","make":"יצרן ודגם או null","docNumber":"מספר פוליסה / מסמך או null","docDate":"תאריך המסמך YYYY-MM-DD או null","expiry":"תאריך תפוגה / תוקף עד YYYY-MM-DD (לרישיון, טסט וביטוח) או null","licExpiry":"אם זה טסט ומופיע תוקף רישיון — YYYY-MM-DD או null","company":"חברת ביטוח או null","agent":"שם סוכן הביטוח / סוכנות הביטוח כפי שמופיע בפוליסה (לא חברת הביטוח עצמה) או null","amount":"סכום לתשלום ₪ — מספר או null","meter":"שעות מנוע או קילומטראז׳ — מספר או null","nextService":"מועד טיפול הבא YYYY-MM-DD או null"}
 כלי הרכב הקיימים: ${names}`;
     const models = ['claude-sonnet-5-5', 'claude-sonnet-5', 'claude-sonnet-4-5'];
     let last = '';
@@ -555,14 +556,14 @@ function pdfDialog() {
   </div>
   <div class="note">סמן את כלי הרכב שייכללו:</div>
   ${ps.map(p => `<label class="doc" style="cursor:pointer"><input type="checkbox" class="pd_v" value="${p.id}" ${PD.sel.includes(p.id) ? 'checked' : ''}>
-    <div class="i"><b>${vic(p)} ${esc(label(p))}</b><span>${esc(p.plate || '')}${PD.kind === 'ins' ? ' · ' + (insEnd(p) ? 'ביטוח עד ' + dmy(insEnd(p)) : 'אין תאריך ביטוח') + (p.insCo ? ' · ' + esc(p.insCo) : '') : ''}</span></div></label>`).join('') || '<div class="empty">אין כלי רכב פעילים</div>'}
+    <div class="i"><b>${vic(p)} ${esc(label(p))}</b><span>${esc(p.plate || '')}${PD.kind === 'ins' ? ' · ' + (insEnd(p) ? 'ביטוח עד ' + dmy(insEnd(p)) : 'אין תאריך ביטוח') + (p.insAgent ? ' · סוכן: ' + esc(p.insAgent) : p.insCo ? ' · ' + esc(p.insCo) + ' (אין סוכן בכרטיס)' : '') : ''}</span></div></label>`).join('') || '<div class="empty">אין כלי רכב פעילים</div>'}
   ${PD.kind === 'ins' ? `<div class="fg" style="margin-top:10px">
-    <label class="f">אל (חברת הביטוח / סוכן)<input id="pd_to" placeholder="ריק = לפי חברת הביטוח בכרטיס"></label>
+    <label class="f">אל (סוכן הביטוח)<input id="pd_to" placeholder="ריק = לפי הסוכן שבכרטיס"></label>
     <label class="f">לידי (לא חובה)<input id="pd_att"></label>
     <label class="f">חתימה<input id="pd_sign" value="${esc(sign)}"></label>
     <label class="f" style="grid-column:1/-1">הערה נוספת במכתב (לא חובה)<textarea id="pd_note" rows="2"></textarea></label></div>` : ''}
   <div class="row"><button class="btn" onclick="makePdf()">📄 הפק PDF</button></div>
-  <div class="note">${PD.kind === 'ins' ? 'אם יש כמה חברות ביטוח ולא מילאת "אל" — יופק מכתב נפרד לכל חברה. ' : ''}נפתח בחלון חדש — בטלפון בוחרים "שמור כ-PDF" ואז שולחים במייל או בוואטסאפ.</div>`;
+  <div class="note">${PD.kind === 'ins' ? 'הנמען הוא סוכן הביטוח שבכרטיס כלי הרכב (אם אין — חברת הביטוח). אם יש כמה סוכנים ולא מילאת "אל" — יופק מכתב נפרד לכל סוכן. ' : ''}נפתח בחלון חדש — בטלפון בוחרים "שמור כ-PDF" ואז שולחים במייל או בוואטסאפ.</div>`;
   openMd();
 }
 function makePdf() {
@@ -578,7 +579,7 @@ function makePdf() {
     if (sign) localStorage.setItem('lv_signer', sign);
     title = 'בקשה לחידוש ביטוח כלי רכב';
     const groups = {};
-    ps.forEach(p => { const k = to || p.insCo || '—'; (groups[k] = groups[k] || []).push(p); });
+    ps.forEach(p => { const k = to || p.insAgent || p.insCo || '—'; (groups[k] = groups[k] || []).push(p); });
     pages = Object.entries(groups).map(([rcpt, list]) => `<div class="pg">${head}
       <div class="dt">${heb}</div>
       <div class="to">לכבוד<br><b>${e(rcpt === '—' ? '' : rcpt)}</b>${att ? '<br>לידי: ' + e(att) : ''}</div>
